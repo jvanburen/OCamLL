@@ -32,11 +32,11 @@ type varInfo =
   | ScalarInfo of scalarConstraint
 
 let merge_atom atomA atomB = match (atomA, atomB) with
-    (IntAtom i, IntAtom j) -> Some (IntAtom (max i j))
+    (IntAtom i, IntAtom j) -> Some (IntAtom (min i j))
   | (LenAtom v1, LenAtom v2) -> if v1 = v2 then Some (LenAtom v1) else None
   | (VarAtom v1, VarAtom v2) -> if v1 = v2 then Some (VarAtom v1) else None
   | _ -> None
-             
+
 let add_constraints (known : varInfo VarMap.t) (flam : Flambda.t) : varInfo VarMap.t =
   match flam with
   | Flambda.Var _ -> known
