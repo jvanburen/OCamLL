@@ -1,0 +1,8 @@
+type atom = IntAtom of int | LenAtom of Variable.t | VarAtom of Variable.t
+type upperBound = POSINF | Atom of atom
+type lowerBound = NEGINF | Zero
+(* Ranges are half-open *)
+type range = lowerBound * upperBound
+ 
+
+val merge_intervals : 
