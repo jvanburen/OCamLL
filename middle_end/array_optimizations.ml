@@ -17,12 +17,19 @@
 let pass_name = "optimize-array-accesses"
 let () = Clflags.all_passes := pass_name :: !Clflags.all_passes
 
-
+module VarMap = Map.Make (Variable)
 type atom = | IntAtom of int | LenAtom of Variable.t | VarAtom of Variable.t
-type upperBound = | POSINF | Atom of atom
-type lowerBound = | NEGINF | Zero
+type upperBound = | UBUndef | UB of atom option
+type lowerBound = | LBUndef | LB of int option
 (* Ranges are half-open *)
-type range = lowerBound * upperBound
+type scalarConstraint = lowerBound * upperBound
+type boolConstraints = {
+    iftrue: scalarConstraint VarMap.t;
+    iffalse: scalarConstraint VarMap.t;
+  }
+type varInfo =
+  | BoolInfo of boolConstraints
+  | ScalarInfo of scalarConstraint
                              
 
 let merge_atom atomA atomB = match (atomA, atomB) with
@@ -30,16 +37,4 @@ let merge_atom atomA atomB = match (atomA, atomB) with
   | (LenAtom v1, LenAtom v2) -> if v1 = v2 then Some (LenAtom v1) else None
   | (VarAtom v1, VarAtom v2) -> if v1 = v2 then Some (VarAtom v1) else None
   | _ -> None
-(* Take the worse of the two intervals *)
-let merge_intervals (lb1, ub1) (lb2, ub2) =
-  ((match (ub1, ub2) with
-    | (POSINF, _) -> POSINF
-    | (_, POSINF) -> POSINF
-    | (Atom a, Atom b) -> match merge_atom a b with
-                          | Some atom -> Atom atom
-                          | None -> POSINF),
-   (match (lb1, lb2) with
-    | (NEGINF, _) -> NEGINF
-    | (_, NEGINF) -> NEGINF
-    | (Zero, Zero) -> Zero))
                                  
