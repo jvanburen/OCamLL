@@ -147,6 +147,7 @@ let middle_end ppf ~source_provenance ~prefixname ~backend
       +-+ ("Share_constants", Share_constants.share_constants)
       +-+ ("Remove_unused_program_constructs",
         Remove_unused_program_constructs.remove_unused_program_constructs)
+      +-+ ("Array_sub_replace", Array_sub_replace.optimize_array_accesses)
     in
     let flam =
       if !Clflags.classic_inlining then

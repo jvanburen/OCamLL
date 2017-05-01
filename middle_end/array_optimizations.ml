@@ -15,7 +15,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
-let pass_name = "optimize-array-accesses"
+let pass_name = "analyze-array-accesses"
 let () = Clflags.all_passes := pass_name :: !Clflags.all_passes
 
 exception Impossible
@@ -42,7 +42,7 @@ end
 module UpperBound =
 struct
   type atom =
-    | IntAtom of int
+    | IntAtom of int64
     | LenAtom of Variable.t
     | VarAtom of Variable.t
   type t =
@@ -79,7 +79,7 @@ module LowerBound =
 struct
   type t =
     | NegInf
-    | LB of int
+    | LB of int64
     | Undef
   let (bot, top) = (Undef, NegInf)
 
@@ -95,6 +95,7 @@ struct
     | (other, NegInf) -> other
     | (LB aa, LB bb) -> LB (Widening.max aa bb)
     | _ -> bot
+  let zero = LB Int64.zero
   let leq a b = (join a b) = b
 end
 module LB = LowerBound (* Abbreviation *)
@@ -108,7 +109,10 @@ struct
   let join (alb, aub) (blb, bub) = (LB.join alb blb, UB.join aub bub)
   let meet (alb, aub) (blb, bub) = (LB.meet alb blb, UB.meet aub bub)
   let leq a b = (join a b) = b
-  let from_int i = (LB.LB i, UB.UB (UB.IntAtom (i + 1)))
+  let of_int64 (i : int64) = (LB.LB i, UB.UB (UB.IntAtom (Int64.succ i)))
+  let of_int32 i = of_int64 (Int64.of_int32 i)
+  let of_nativeint i = of_int64 (Int64.of_nativeint i)
+  let of_int i = of_int64 (Int64.of_int i)
 end
 module SC = ScalarConstraint
 
@@ -265,38 +269,37 @@ let rec add_constraints (known : Lattice.t) (flam : Flambda.t) : (Lattice.t * La
   | _ -> (known, Lattice.NoInfo)
 and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice.t * Lattice.varInfo) =
   match named with
-  (* Symbols are handles for constants from seperate compilation units. We might need to check 
+  (* Symbols are handles for constants from seperate compilation units. We might need to check
    * for arraylength or something here. *)
   | Flambda.Symbol _ -> (known, Lattice.NoInfo)
   | Flambda.Const c -> (known, (match c with
-                                | Flambda.Int i -> Lattice.ScalarInfo (ScalarConstraint.from_int i)
+                                | Flambda.Int i -> Lattice.ScalarInfo (SC.of_int i)
                                 | Flambda.Char _ -> Lattice.NoInfo
                                 | Flambda.Const_pointer _ -> Lattice.NoInfo))
   | Flambda.Allocated_const c ->
-     (known, (match c with
-              | Allocated_const.Int32 i ->
-                 Lattice.ScalarInfo (ScalarConstraint.from_int (Int32.to_int i))
-              | Allocated_const.Int64 i ->
-                 Lattice.ScalarInfo (ScalarConstraint.from_int (Int64.to_int i))
-              | Allocated_const.Nativeint ni ->
-                 Lattice.ScalarInfo (ScalarConstraint.from_int (Nativeint.to_int ni))
-              | Allocated_const.Float_array _ | Allocated_const.Immutable_float_array _
-                | Allocated_const.String _ | Allocated_const.Immutable_string _
-                | Allocated_const.Float _ ->
-                 Lattice.NoInfo
-     ))
+    (known, match c with
+            | Allocated_const.Int32 i -> Lattice.ScalarInfo (SC.of_int32 i)
+            | Allocated_const.Int64 i -> Lattice.ScalarInfo (SC.of_int64 i)
+            | Allocated_const.Nativeint ni -> Lattice.ScalarInfo (SC.of_nativeint ni)
+            | Allocated_const.Float _
+              | Allocated_const.String _
+              | Allocated_const.Float_array _
+              | Allocated_const.Immutable_string _
+              | Allocated_const.Immutable_float_array _ -> Lattice.NoInfo
+    )
   | Flambda.Read_mutable _ -> (known, Lattice.NoInfo)
   (* Once again, symbols might be useful to look at later. *)
   | Flambda.Read_symbol_field _ -> (known, Lattice.NoInfo)
   | Flambda.Set_of_closures {Flambda.function_decls = {Flambda.funs; _}; _} ->
-     let bindings = Variable.Map.bindings funs in 
+     let bindings = Variable.Map.bindings funs in
      let addBindings known (_, ({Flambda.body;} : Flambda.function_declaration)) =
        let (known2, _) = add_constraints known body in known2 in
      (List.fold_left addBindings known bindings, Lattice.NoInfo)
   | Flambda.Prim (prim, vars, _) ->
-     (known, (match (prim, vars) with
-     (* Ensure we're only looking at the length of a single array. *)
-     | (Lambda.Parraylength _, [var]) ->
-        Lattice.ScalarInfo (LB.LB 0, UB.UB (UB.LenAtom var))
-     | _ -> Lattice.NoInfo))
+      let info = match (prim, vars) with
+       (* Ensure we're only looking at the length of a single array. *)
+       | (Lambda.Parraylength _, [var]) ->
+          Lattice.ScalarInfo (LB.zero, UB.UB (UB.LenAtom var))
+       | _ -> Lattice.NoInfo
+      in (known, info)
   | _ -> (known, Lattice.NoInfo)
