@@ -151,6 +151,7 @@ module Options = Main_args.Make_optcomp_options (struct
   let _drawclambda = option "-drawclambda"
   let _dclambda = option "-dclambda"
   let _drawflambda = option "-drawflambda"
+  let _opticomp_enable = option "-opticomp-enable"
   let _dflambda = option "-dflambda"
   let _dflambda_no_invariants = option "-dflambda-no-invariants"
   let _dflambda_let stamp = option_with_int "-dflambda-let" stamp

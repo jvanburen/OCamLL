@@ -133,6 +133,8 @@ let flambda_invariant_checks = ref true (* -flambda-invariants *)
 
 let dont_write_files = ref false        (* set to true under ocamldoc *)
 
+let opticomp_enable = ref false (* opticomp roll out *)
+                          
 let std_include_flag prefix =
   if !no_std_include then ""
   else (prefix ^ (Filename.quote Config.standard_library))

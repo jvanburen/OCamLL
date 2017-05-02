@@ -39,5 +39,6 @@ let analyze_and_ignore (expr : Flambda.t) : Flambda.t =
   in
   expr
 let optimize_array_accesses (program : Flambda.program) =
+  if !Clflags.opticomp_enable then
   Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:analyze_and_ignore
-
+  else program

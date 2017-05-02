@@ -169,6 +169,7 @@ val inline_lifting_benefit : Int_arg_helper.parsed ref
 val default_inline_branch_factor : float
 val inline_branch_factor : Float_arg_helper.parsed ref
 val dont_write_files : bool ref
+val opticomp_enable : bool ref
 val std_include_flag : string -> string
 val std_include_dir : unit -> string list
 val shared : bool ref
