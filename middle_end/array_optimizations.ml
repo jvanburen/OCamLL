@@ -16,7 +16,7 @@
 (**************************************************************************)
 
 let pass_name = "analyze-array-accesses"
-let () = Clflags.all_passes := pass_name :: !Clflags.all_passes
+let () = Pass_wrapper.register ~pass_name:pass_name
 
 exception Impossible
 exception TypeMismatch

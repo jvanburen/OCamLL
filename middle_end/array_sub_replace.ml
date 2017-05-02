@@ -14,7 +14,7 @@
 (**************************************************************************)
 
 let pass_name = "optimize-array-accesses"
-let () = Clflags.all_passes := pass_name :: !Clflags.all_passes
+let () = Pass_wrapper.register ~pass_name:pass_name
 
 open Array_optimizations
 let x : Lattice.t = Lattice.bot
@@ -31,5 +31,13 @@ let x : Lattice.t = Lattice.bot
   TODO: array accesses in for-loops: should we be hoisting out a bounds check?
 *)
 
-let optimize_array_accesses program = program
+let analyze_and_ignore (expr : Flambda.t) : Flambda.t =
+  let emptyMap = Lattice.VarMap.empty in
+  let (_, _) = try (Array_optimizations.add_constraints emptyMap expr) with
+               | _ -> let _ = print_string "Got an exception\n" in
+                      (emptyMap, Array_optimizations.Lattice.NoInfo)
+  in
+  expr
+let optimize_array_accesses (program : Flambda.program) =
+  Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:analyze_and_ignore
 
