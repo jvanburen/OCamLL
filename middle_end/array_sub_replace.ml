@@ -24,7 +24,6 @@ let x : Lattice.t = Lattice.bot
   We shouldn't need to iterate until quiescence because we don't deal with
   mutable variables
 
-
   TODO: using lattice info, use a map function from flambda_iterators
   to update the code
 
@@ -70,21 +69,26 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
   | Flambda.Move_within_set_of_closures _ -> named
   | Flambda.Project_var _ -> named
   | Flambda.Expr expr -> Flambda.Expr (optimize_array lattice expr)
-  | Flambda.Prim (prim, _, _) ->
+  | Flambda.Prim (prim, vars, _) ->
      (match prim with
      | Lambda.Parrayrefs _ ->
         let _ = print_string "Got an array reference\n" in
         named
      | Lambda.Parraysets _ ->
         let _ = print_string "Setting an array\n" in
+        let _ = (match vars with
+                 | [v] -> print_string ((Variable.unique_name v) ^ "\n")
+                 | _ -> print_string ((string_of_int (List.length vars)) ^ " " ^ (Array_optimizations.listToString "" (List.map Variable.unique_name vars)) ^"\n")) in
         named
      | _ -> named)
+(* Oh no, globals! *)
+let latticeRef = ref Lattice.VarMap.empty
 let analyze_and_ignore (expr : Flambda.t) : Flambda.t =
-  let emptyMap = Lattice.VarMap.empty in
-  let (lattice, _) = try (Array_optimizations.add_constraints emptyMap expr) with
+  let (lattice, _) = try (Array_optimizations.add_constraints (!latticeRef) expr) with
                      | ex -> let () = print_string ("Got an exception\n" ^ Printexc.to_string ex) in
-                             (emptyMap, Array_optimizations.Lattice.NoInfo)
+                             (!latticeRef, Array_optimizations.Lattice.NoInfo)
   in
+  let _ = latticeRef := lattice in
   let _ = print_string ("Lattice is: " ^ (Lattice.to_string lattice) ^ "\n") in
   let _ = optimize_array lattice expr in
   expr

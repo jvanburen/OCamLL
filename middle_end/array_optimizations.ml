@@ -227,6 +227,10 @@ let rec add_constraints (known : Lattice.t) (flam : Flambda.t) : (Lattice.t * La
   match flam with
   | Flambda.Var v -> (known, getVarInfo v known)
   | Flambda.Let {Flambda.var; Flambda.defining_expr; Flambda.body; _} ->
+    let _ = print_string ("In a let with variable " ^ (Variable.unique_name var) ^ "\n") in 
+    let _ = if Variable.unique_name var = "match_32" then
+              Flambda.print_named Format.std_formatter defining_expr
+            else () in
     let (known, deInfo) = add_constraints_named known defining_expr in
     let known = Lattice.VarMap.add var deInfo known in
     add_constraints known body
@@ -331,4 +335,5 @@ and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice
           Lattice.ScalarInfo (LB.zero, UB.UB (UB.LenAtom var))
        | _ -> Lattice.NoInfo
       in (known, info)
+  | Flambda.Expr expr -> add_constraints known expr
   | _ -> (known, Lattice.NoInfo)
