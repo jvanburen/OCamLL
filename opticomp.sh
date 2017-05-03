@@ -1,13 +1,11 @@
-#!/bin/sh -x
+#!/bin/sh -e
 
-CONFIGURED_FLAG_FILE="./OPTICOMP_CONFIGURED"
+CONFIGURED_FLAG_FILE="./CONFIGURED_OPTICOMP"
 
 if [ $(head -n 1 ./VERSION) != "4.04.0" ]; then
   echo "Version check failed, probably wrong directory?"
   exit 1
 fi
-
-mkdir -p "install"
 
 if [ -f $CONFIGURED_FLAG_FILE ]; then
   echo 'Already configured'
@@ -16,9 +14,12 @@ else
   echo 'Remove this file to re-configure' > $CONFIGURED_FLAG_FILE
 fi
 
+# using -j n makes this FAIL (not our fault)
 make world
 make opt
 
-make install
-
-echo "Installed to ./install/bin/ocamlopt"
+if [ ${1:-noinstall} = "install" ]; then
+  mkdir -p "install"
+  make install
+  echo "Installed to ./install/bin/ocamlopt"
+fi
