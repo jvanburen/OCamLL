@@ -16,6 +16,7 @@ else
   echo 'Remove this file to re-configure' > $CONFIGURED_FLAG_FILE
 fi
 
+make world
 make opt
 
 make install
