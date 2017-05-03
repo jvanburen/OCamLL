@@ -1,0 +1,24 @@
+Optimizing Compilers (opticomp) Changes
+===
+
+To Top-level compiler:
+added the -opticomp-enable flag to ocamlc so flambda passes do array bounds analysis
+
+## Building the Compiler
+
+#### Automatic:
+  * run `./opticomp.sh`
+
+#### Manual:
+  * To build the compiler, navigate to the top-level directory and execute the following commands:
+
+    mkdir -p install
+    ./configure -prefix `pwd`/install -flambda
+    make opt.opt
+    make install
+
+:+1:
+
+If you stop `make world.opt` build, then it's possible you will have to `make clean` and/or reconfigure if you get an error such as "[files] make inconsistent assumptions over interface ...".
+
+To run, use `./install/bin/ocamlopt -opticomp-enable`

@@ -370,3 +370,5 @@
 ignore
 ignore/**
 install
+OPTICOMP_CONFIGURED
+CONFIGURED
