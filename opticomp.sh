@@ -11,17 +11,17 @@ if [ -f $CONFIGURED_FLAG_FILE ]; then
   echo 'Already configured'
 else
   ./configure -flambda -prefix `pwd`/install
-  make world
+  make world --quiet
   echo 'Remove this file to re-configure' > $CONFIGURED_FLAG_FILE
 fi
 
 # using -j n makes this FAIL (not our fault)
-make opt
+make opt --quiet
 
-if [ ${1:-noinstall} = "noinstall" ]; then
+if [ ${1:-install} = "noinstall" ]; then
   echo "skipping installation"
 else
   mkdir -p "install"
-  make install
+  make install --quiet
   echo "Installed to ./install/bin/ocamlopt"
 fi

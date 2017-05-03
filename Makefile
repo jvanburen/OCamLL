@@ -308,6 +308,7 @@ tests: opt.opt
 # The clean target
 
 clean:: partialclean
+	rm -f CONFIGURED_OPTICOMP
 
 # Shared parts of the system
 
