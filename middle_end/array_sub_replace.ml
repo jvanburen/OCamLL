@@ -75,6 +75,9 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
      | Lambda.Parrayrefs _ ->
         let _ = print_string "Got an array reference\n" in
         named
+     | Lambda.Parraysets _ ->
+        let _ = print_string "Setting an array\n" in
+        named
      | _ -> named)
 let analyze_and_ignore (expr : Flambda.t) : Flambda.t =
   let emptyMap = Lattice.VarMap.empty in
@@ -90,4 +93,4 @@ let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
   then Flambda_iterators.map_exprs_at_toplevel_of_program program
         ~f:analyze_and_ignore
-  else (print_string "not optimizing arrays because flag was not enabled\n"; program)
+  else program
