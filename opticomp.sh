@@ -1,4 +1,4 @@
-#!/bin/sh -e
+#!/bin/bash -e
 
 CONFIGURED_FLAG_FILE="./CONFIGURED_OPTICOMP"
 

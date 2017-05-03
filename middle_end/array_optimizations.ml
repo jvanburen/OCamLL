@@ -78,8 +78,8 @@ struct
     match atom with
     | LenAtom var -> "LenAtom " ^ (Variable.unique_name var)
     | VarAtom var -> "VarAtom " ^ (Variable.unique_name var)
-    | IntAtom i -> "IntAtom " ^ (Int64.to_string i) 
-      
+    | IntAtom i -> "IntAtom " ^ (Int64.to_string i)
+
   let to_string (t : t) =
     match t with
     | PosInf -> "PosInf"
@@ -158,7 +158,7 @@ struct
   let bot = VarMap.empty
   (* Top doesn't exist, we don't know what the universe of keys is *)
   let rec bool_constraint_to_string {ifTrue; ifFalse} =
-    "{ ifTrue: " ^ (to_string ifTrue) ^ "\n ifFalse: " ^ (to_string ifFalse) ^ "}" 
+    "{ ifTrue: " ^ (to_string ifTrue) ^ "\n ifFalse: " ^ (to_string ifFalse) ^ "}"
   and var_info_to_string (vi : varInfo) =
     match vi with
     | BoolInfo bc -> "BoolInfo(" ^ (bool_constraint_to_string bc) ^ ")"
