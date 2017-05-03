@@ -18,7 +18,7 @@ fi
 make world
 make opt
 
-if [ $1 = "install" ]; then
+if [ ${1:=noinstall} = "install" ]; then
   mkdir -p "install"
   make install
   echo "Installed to ./install/bin/ocamlopt"
