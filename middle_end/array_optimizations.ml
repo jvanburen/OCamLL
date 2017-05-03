@@ -21,6 +21,8 @@ let () = Pass_wrapper.register ~pass_name:pass_name
 exception Impossible
 exception TypeMismatch
 
+
+let listToString header (list : string list) = header ^ "[" ^ (String.concat ", " list) ^ "]"
 (* module type BOUNDED_SEMILATTICE =
 sig
   type t
@@ -72,6 +74,17 @@ struct
     | (UB aa, UB bb) -> atomOp Widening.min (fun x -> UB x) (fun () -> bot) aa bb
     | _ -> bot
   let leq a b = (join a b) = b
+  let atom_to_string atom =
+    match atom with
+    | LenAtom var -> "LenAtom " ^ (Variable.unique_name var)
+    | VarAtom var -> "VarAtom " ^ (Variable.unique_name var)
+    | IntAtom i -> "IntAtom " ^ (Int64.to_string i) 
+      
+  let to_string (t : t) =
+    match t with
+    | PosInf -> "PosInf"
+    | UB atom -> "UB " ^ (atom_to_string atom)
+    | Undef -> "Undef"
 end
 module UB = UpperBound (* Abbreviation *)
 
@@ -97,6 +110,11 @@ struct
     | _ -> bot
   let zero = LB Int64.zero
   let leq a b = (join a b) = b
+  let to_string (t : t) =
+    match t with
+    | NegInf -> "NegInf"
+    | LB i -> "LB " ^ (Int64.to_string i)
+    | Undef -> "Undef"
 end
 module LB = LowerBound (* Abbreviation *)
 
@@ -113,6 +131,7 @@ struct
   let of_int32 i = of_int64 (Int64.of_int32 i)
   let of_nativeint i = of_int64 (Int64.of_nativeint i)
   let of_int i = of_int64 (Int64.of_int i)
+  let to_string (lb, ub) = "(" ^ (LB.to_string lb) ^ ", " ^ (UB.to_string ub) ^ ")"
 end
 module SC = ScalarConstraint
 
@@ -138,7 +157,17 @@ struct
 
   let bot = VarMap.empty
   (* Top doesn't exist, we don't know what the universe of keys is *)
-
+  let rec bool_constraint_to_string {ifTrue; ifFalse} =
+    "{ ifTrue: " ^ (to_string ifTrue) ^ "\n ifFalse: " ^ (to_string ifFalse) ^ "}" 
+  and var_info_to_string (vi : varInfo) =
+    match vi with
+    | BoolInfo bc -> "BoolInfo(" ^ (bool_constraint_to_string bc) ^ ")"
+    | ScalarInfo sc -> "ScalarInfo(" ^ (ScalarConstraint.to_string sc) ^ ")"
+    | NoInfo -> "NoInfo"
+  and to_string (varMap : t) =
+    let bindings = VarMap.bindings varMap in
+    let strFn (k, v) = ((Variable.unique_name k) ^ ": " ^ var_info_to_string v) ^ "\n" in
+    listToString "Bindings" (List.map strFn bindings)
   let rec join a b =
     let f _ a b =
       match (a, b) with

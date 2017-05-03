@@ -33,9 +33,11 @@ let x : Lattice.t = Lattice.bot
 
 let analyze_and_ignore (expr : Flambda.t) : Flambda.t =
   let emptyMap = Lattice.VarMap.empty in
-  let (_, _) = try (Array_optimizations.add_constraints emptyMap expr) with
+  let (lattice, _) = try (Array_optimizations.add_constraints emptyMap expr) with
                | ex -> let () = print_string ("Got an exception\n" ^ Printexc.to_string ex) in
                       (emptyMap, Array_optimizations.Lattice.NoInfo)
+  in
+  let _ = print_string ("Lattice is: " ^ (Lattice.to_string lattice) ^ "\n")
   in expr
 
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
