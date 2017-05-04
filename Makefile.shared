@@ -166,6 +166,7 @@ MIDDLE_END=\
   middle_end/freshening.cmo \
   middle_end/simple_value_approx.cmo \
   middle_end/lift_code.cmo \
+  middle_end/array_lattice.cmo \
   middle_end/array_optimizations.cmo \
   middle_end/array_sub_replace.cmo \
   middle_end/closure_conversion_aux.cmo \
