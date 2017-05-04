@@ -268,9 +268,14 @@ struct
   (* TODO: this is not correct since we have Other = _|_ *)
   let leq a b = join a b = b
 
-  let getVarOpt ((varLattice, _) : t) (var : Variable.t) = if VarMap.mem var varLattice
-                              then Some (VarMap.find var varLattice)
-                              else None
+  let getSymOpt ((_, symLattice) : t) (sym : Symbol.t) =
+    if SymMap.mem sym symLattice
+    then Some (SymMap.find sym symLattice)
+    else None
+  let getVarOpt ((varLattice, _) : t) (var : Variable.t) =
+    if VarMap.mem var varLattice
+    then Some (VarMap.find var varLattice)
+    else None
   let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap)
   let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap)
 end
@@ -427,7 +432,10 @@ and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice
   match named with
   (* Symbols are handles for constants from seperate compilation units. We might need to check
    * for arraylength or something here. *)
-  | Flambda.Symbol _ -> (known, Lattice.NoInfo)
+  | Flambda.Symbol sym ->
+     (known, (match Lattice.getSymOpt known sym with
+              | Some vi -> vi
+              | None -> Lattice.NoInfo))
   | Flambda.Const c -> (known, (match c with
                                 | Flambda.Int i -> Lattice.ScalarInfo (SC.of_int i)
                                 | Flambda.Char _ -> Lattice.NoInfo
@@ -445,7 +453,12 @@ and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice
     )
   | Flambda.Read_mutable _ -> (known, Lattice.NoInfo)
   (* Once again, symbols might be useful to look at later. *)
-  | Flambda.Read_symbol_field _ -> (known, Lattice.NoInfo)
+  | Flambda.Read_symbol_field (sym, idx) ->
+     let fieldInfo =
+       (match Lattice.getSymOpt known sym with
+        | Some (Lattice.SymInfo fieldInfoList) -> List.nth fieldInfoList idx
+        | _ -> Lattice.NoInfo) in
+     (known, fieldInfo)
   | Flambda.Set_of_closures {Flambda.function_decls = {Flambda.funs; _}; _} ->
      let bindings = Variable.Map.bindings funs in
      let addBindings known (_, ({Flambda.body;} : Flambda.function_declaration)) =
