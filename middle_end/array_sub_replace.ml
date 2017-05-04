@@ -43,17 +43,18 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
   | Flambda.Send _ -> expr
   | Flambda.Assign _ -> expr
   | Flambda.If_then_else (v, thenB, elseB) ->
+     let (varInfo, symInfo) = lattice in
      let (latticeT, latticeF) =
        (match Lattice.getVarOpt lattice v with
         | Some info ->
            (match info with
             | Lattice.BoolInfo {Lattice.ifTrue; Lattice.ifFalse} ->
-               (Lattice.VarMap.mergeVarMaps lattice ifTrue,
-               (Lattice.VarMap.mergeVarMaps lattice ifFalse))
-            | _ -> (lattice, lattice))
-        | None -> (lattice, lattice)) in
-     Flambda.If_then_else (v, optimize_array latticeT thenB,
-                           optimize_array latticeF elseB)
+               (Lattice.VarMap.mergeVarMaps varInfo ifTrue,
+               (Lattice.VarMap.mergeVarMaps varInfo ifFalse))
+            | _ -> (varInfo, varInfo))
+        | None -> (varInfo, varInfo)) in
+     Flambda.If_then_else (v, optimize_array (latticeT, symInfo) thenB,
+                           optimize_array (latticeF, symInfo) elseB)
   | Flambda.Switch _ -> expr
   | Flambda.String_switch _ -> expr
   | Flambda.Static_raise _ -> expr
@@ -91,19 +92,39 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
         named
      | _ -> named)
 (* Oh no, globals! *)
-let latticeRef = ref Lattice.VarMap.empty
-let analyze_and_ignore (expr : Flambda.t) : Flambda.t =
-  let (lattice, _) = try (Array_optimizations.add_constraints (!latticeRef) expr) with
+let latticeRef = ref (Lattice.VarMap.empty, Lattice.SymMap.empty)
+let analyze_and_ignore (expr : Flambda.t) : Lattice.varInfo =
+  let (lattice, varInfo) = try (Array_optimizations.add_constraints (!latticeRef) expr) with
                      | ex -> let () = print_string ("Got an exception\n" ^ Printexc.to_string ex) in
                              (!latticeRef, Array_optimizations.Lattice.NoInfo)
   in
   let _ = latticeRef := lattice in
   let _ = print_string ("Lattice is: " ^ (Lattice.to_string lattice) ^ "\n") in
   let _ = optimize_array lattice expr in
-  expr
+  varInfo
 
+let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
+  let rec iter_program_body (program : Flambda.program_body) =
+  match program with
+  | Flambda.Let_symbol (_, Flambda.Set_of_closures _, program') ->
+     (* TODO Should we do this *)
+     iter_program_body program'
+  | Flambda.Let_symbol (_, _, program') ->
+     iter_program_body program'
+  | Flambda.Let_rec_symbol (_, program') ->
+     iter_program_body program'
+  | Flambda.Initialize_symbol (symbol, _, fields, program') ->
+     let varInfos = List.map analyze_and_ignore fields in
+     latticeRef := (Lattice.addSymInfo symbol (Lattice.SymInfo varInfos) (!latticeRef));
+     iter_program_body program'
+  | Flambda.Effect (expr, program') ->
+     let _ = analyze_and_ignore expr in
+     iter_program_body program'
+  | Flambda.End _ -> print_string "end\n"
+  in
+  iter_program_body program_body
+    
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
-  then Flambda_iterators.map_exprs_at_toplevel_of_program program
-        ~f:analyze_and_ignore
+  then (analyze_toplevel_of_program program; program)
   else program

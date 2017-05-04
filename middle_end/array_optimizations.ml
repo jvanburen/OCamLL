@@ -141,6 +141,12 @@ struct
 end
 module SC = ScalarConstraint
 
+let rec zip (l1, l2) =
+  match (l1, l2) with
+  | ([], _) -> []
+  | (_, []) -> []
+  | (a :: l1', b :: l2') -> (a, b) :: (zip (l1', l2'))
+              
 (* TODO: Fix uses of add to join? *)
 module Lattice =
 struct
@@ -158,29 +164,54 @@ struct
         Variable.Map.add key v (Variable.Map.remove key lattice) in
       Variable.Map.fold addFn map2 map1
   end
-
-  type t = varInfo VarMap.t
+  module SymMap =
+  struct
+    include Symbol.Map
+  end
+  (* Sinan: It's annoying that we can't enforce that the varInfo in the 
+   * symMap is always a SymInfo on the type level. Since a variable can be
+   * bound to a symbol and read at a later time, we need to include SymInfo
+   * as a constructor for varInfo. *)
+  type t = (varInfo VarMap.t) * (varInfo SymMap.t)
   and varInfo =
     | BoolInfo of boolConstraints
     | ScalarInfo of ScalarConstraint.t
     | NoInfo
-  and boolConstraints = { ifTrue: t; ifFalse: t; }
+    | SymInfo of varInfo list
+  and boolConstraints = { ifTrue: varInfo VarMap.t; ifFalse: varInfo VarMap.t; }
   (* boolConstraints is a Map from variable value to constraints *)
 
-  let bot = VarMap.empty
+  let bot = (VarMap.empty, SymMap.empty)
   (* Top doesn't exist, we don't know what the universe of keys is *)
   let rec bool_constraint_to_string {ifTrue; ifFalse} =
-    "{ ifTrue: " ^ (to_string ifTrue) ^ "\n ifFalse: " ^ (to_string ifFalse) ^ "}"
+    "{ ifTrue: " ^ (var_map_to_string ifTrue) ^ "\n ifFalse: " ^ (var_map_to_string ifFalse) ^ "}"
   and var_info_to_string (vi : varInfo) =
     match vi with
     | BoolInfo bc -> "BoolInfo(" ^ (bool_constraint_to_string bc) ^ ")"
     | ScalarInfo sc -> "ScalarInfo(" ^ (ScalarConstraint.to_string sc) ^ ")"
     | NoInfo -> "NoInfo"
-  and to_string (varMap : t) =
+    | SymInfo vis -> listToString "SymInfo" (List.map var_info_to_string vis) 
+  and var_map_to_string varMap =
     let bindings = VarMap.bindings varMap in
     let strFn (k, v) = ((Variable.unique_name k) ^ ": " ^ var_info_to_string v) ^ "\n" in
-    listToString "Bindings" (List.map strFn bindings)
-  let rec join a b =
+    listToString "Variable bindings: " (List.map strFn bindings)
+  and to_string ((varMap, symMap) : t) =
+    let bindings = SymMap.bindings symMap in
+    let strFn (k, v) = ((Linkage_name.to_string (Symbol.label k))
+                        ^ ": " ^ var_info_to_string v) ^ "\n" in
+    let varDisplay = var_map_to_string varMap in
+    let symDisplay = listToString "\nSymbol bindings: " (List.map strFn bindings) in
+    varDisplay ^ symDisplay ^ "\n"
+                                
+  let rec join (a, aSym) (b, bSym) =
+    let f _ a b =
+      match (a, b) with
+      | (Some aa, Some bb) -> Some (joinVarInfo aa bb)
+      | (Some _, None) -> a
+      | (None, Some _) -> b
+      | (None, None) -> raise Impossible
+    in (joinVarMap a b, SymMap.merge f aSym bSym)
+  and joinVarMap a b =
     let f _ a b =
       match (a, b) with
       | (Some aa, Some bb) -> Some (joinVarInfo aa bb)
@@ -194,14 +225,24 @@ struct
     | (other, NoInfo) -> other
     | (BoolInfo aa, BoolInfo bb) ->
       BoolInfo {
-        ifTrue = join aa.ifTrue bb.ifTrue;
-        ifFalse = join aa.ifFalse bb.ifFalse;
+        ifTrue = joinVarMap aa.ifTrue bb.ifTrue;
+        ifFalse = joinVarMap aa.ifFalse bb.ifFalse;
       }
     | (ScalarInfo aa, ScalarInfo bb) ->
       ScalarInfo (SC.join aa bb)
+    | (SymInfo a, SymInfo b) ->
+       SymInfo (List.map (fun (a, b) -> joinVarInfo a b) (zip (a, b)))
     | _ -> raise TypeMismatch
 
-  let rec meet a b =
+  let rec meet (aVar, aSym) (bVar, bSym) =
+    let f _ a b =
+      match (a, b) with
+      | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
+      | (Some _, None) -> a
+      | (None, Some _) -> b
+      | (None, None) -> raise Impossible
+    in (meetVarInfo aVar bVar, SymMap.merge f aSym bSym)
+  and meetVarMap a b =
     let f _ a b =
       match (a, b) with
       | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
@@ -215,19 +256,23 @@ struct
     | (_, NoInfo) -> NoInfo
     | (BoolInfo aa, BoolInfo bb) ->
       BoolInfo {
-        ifTrue = meet aa.ifTrue bb.ifTrue;
-        ifFalse = meet aa.ifFalse bb.ifFalse;
+        ifTrue = meetVarMap aa.ifTrue bb.ifTrue;
+        ifFalse = meetVarMap aa.ifFalse bb.ifFalse;
       }
     | (ScalarInfo aa, ScalarInfo bb) ->
       ScalarInfo (SC.meet aa bb)
+    | (SymInfo a, SymInfo b) ->
+       SymInfo (List.map (fun (a, b) -> meetVarInfo a b) (zip (a, b)))
     | _ -> raise TypeMismatch
 
   (* TODO: this is not correct since we have Other = _|_ *)
   let leq a b = join a b = b
 
-  let getVarOpt (lattice : t) (var : Variable.t) = if VarMap.mem var lattice
-                              then Some (VarMap.find var lattice)
+  let getVarOpt ((varLattice, _) : t) (var : Variable.t) = if VarMap.mem var varLattice
+                              then Some (VarMap.find var varLattice)
                               else None
+  let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap)
+  let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap)
 end
 
 exception No_value
@@ -236,7 +281,7 @@ let option_get opt =
   | Some x -> x
   | None -> raise No_value
 
-let getVarInfo (var : Variable.t) (map : Lattice.t) =
+let getVarInfo (var : Variable.t) ((map, _) : Lattice.t) =
   Lattice.VarMap.find var map
 
 let get_comparison_info (known : Lattice.t)
@@ -310,14 +355,14 @@ let rec add_constraints (known : Lattice.t) (flam : Flambda.t) : (Lattice.t * La
               Flambda.print_named Format.std_formatter defining_expr
             else () in
     let (known, deInfo) = add_constraints_named known defining_expr in
-    let known = Lattice.VarMap.add var deInfo known in
+    let known = Lattice.addVarInfo var deInfo known in
     add_constraints known body
   (* Right now, we ignore mutable variables. no memory woohoo *)
   | Flambda.Let_mutable {Flambda.body; _} -> add_constraints known body
   | Flambda.Let_rec (defs, body) ->
     let add_def known (name, def) =
       let (known, defInfo) = add_constraints_named known def
-      in (Lattice.VarMap.add name defInfo known) in
+      in (Lattice.addVarInfo name defInfo known) in
     let known = List.fold_left add_def known defs in
      add_constraints known body
   (* We don't known anything about functions right now, although maybe we ought to.
