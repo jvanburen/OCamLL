@@ -112,7 +112,6 @@ type t =
   | While of t * t
   | For of for_loop
   | Proved_unreachable
-
 (** Values of type [named] will always be [let]-bound to a [Variable.t]. *)
 and named =
   | Symbol of Symbol.t
@@ -153,7 +152,6 @@ and named =
   | Project_var of project_var
   | Prim of Lambda.primitive * Variable.t list * Debuginfo.t
   | Expr of t  (** ANF escape hatch. *)
-
 (* CR-someday mshinwell: use [letcont]-style construct to remove e.g.
    [While] and [For]. *)
 (* CR-someday mshinwell: try to produce a tighter definition of a "switch"
@@ -165,7 +163,6 @@ and named =
    we should probably introduce [Mutable_var] into [named] if we introduce
    more complicated analyses on these in the future.  Alternatively, maybe
    consider removing mutable variables altogether. *)
-
 and let_expr = private {
   var : Variable.t;
   defining_expr : named;
@@ -178,7 +175,6 @@ and let_expr = private {
   (** A cache of the free variables of the body of the [let].  This is an
       important optimization. *)
 }
-
 and let_mutable = {
   var : Mutable_variable.t;
   initial_value : Variable.t;

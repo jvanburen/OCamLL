@@ -346,7 +346,7 @@ esac
 
 case "$ccfamily" in
   clang-*)
-    bytecccompopts="-O2 -fno-strict-aliasing -fwrapv $gcc_warnings";;
+    bytecccompopts="-O1 -fno-strict-aliasing -fwrapv $gcc_warnings";;
   gcc-[012]-*)
     # Some versions known to miscompile OCaml, e,g, 2.7.2.1, some 2.96.
     # Plus: C99 support unknown.
@@ -358,7 +358,7 @@ case "$ccfamily" in
     wrn "Consider using GCC version 4.2 or above."
     bytecccompopts="-std=gnu99 -O $gcc_warnings";;
   gcc-*)
-    bytecccompopts="-std=gnu99 -O2 -fno-strict-aliasing -fwrapv $gcc_warnings";;
+    bytecccompopts="-std=gnu99 -O1 -fno-strict-aliasing -fwrapv $gcc_warnings";;
   *)
     bytecccompopts="-O";;
 esac

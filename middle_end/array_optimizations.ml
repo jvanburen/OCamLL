@@ -20,74 +20,66 @@ let () = Pass_wrapper.register ~pass_name:pass_name
 
 open Array_lattice
 
-let getVarInfo (var : Variable.t) ((map, _) : Lattice.t) =
-  Lattice.VarMap.find var map
+(* let getVarInfo (var : Variable.t) ((map, _) : Lattice.t) =
+  Lattice.VarMap.find var map *)
 
-let get_comparison_info (known : Lattice.t)
+let get_comparison_info (sigma : Lattice.t)
                         (comparison : Lambda.comparison)
-                        (left : Variable.t)
-                        (right : Variable.t) =
+                        (leftVar : Variable.t)
+                        (rightVar : Variable.t) =
+  let module L = Lattice in
+(*   let minVarInfo a b =
+    let j = Lattice.joinVarInfo a b in
+    if j = b      then a
+    else if j = a then b
+                  else a (* choose arbitrarily *) in
+  let maxVarInfo a b =
+    let j = Lattice.meetVarInfo a b in
+    if j = b      then a
+    else if j = a then b
+                  else a (* choose arbitrarily *) in*)
+  let exclusive x = x in
+  let minUB a b = match (a, b) with
+    | (L.ScalarInfo (_, aa), L.ScalarInfo (_, bb)) ->
+      let j = UB.join aa bb in
+      if j = bb      then aa
+      else if j = aa then bb
+                     else aa
+    | _ -> raise Impossible in
+  let maxLB a b = match (a, b) with
+    | (L.ScalarInfo (aa, _), L.ScalarInfo (bb, _)) ->
+      let j = LB.join aa bb in
+      if j = bb      then aa
+      else if j = aa then bb
+                     else aa
+    | _ -> raise Impossible in
+  let left = Lattice.getVar sigma leftVar in
+  let right = Lattice.getVar sigma rightVar in
   let mapFromTwo (k1, v1) (k2, v2) =
     Lattice.VarMap.add k1 v1 (Lattice.VarMap.singleton k2 v2) in
-  let getUBOpt var =
-    match Lattice.getVarOpt known var  with
-    | Some info ->
-       (match info with
-        | Lattice.ScalarInfo (_, ub) -> Some ub
-        | _ -> None)
-    | None -> None in
-  let getLBOpt var =
-    match Lattice.getVarOpt known var with
-    | Some info ->
-       (match info with
-        | Lattice.ScalarInfo (lb, _) -> Some lb
-        | _ -> None)
-    | None -> None in
-  let ltConstraint a b =
-    match (getLBOpt a, getUBOpt a, getUBOpt b) with
-    | _ -> Lattice.NoInfo in
-  let lteConstraint _ var = Lattice.ScalarInfo (LB.NegInf, UB.InclusiveUB (UB.VarAtom var)) in
   (* TODO: implement these correctly. *)
-  let gtConstraint _ _ = Lattice.ScalarInfo (LB.NegInf, UB.PosInf) in
-  let gteConstraint _ _ = Lattice.ScalarInfo (LB.NegInf, UB.PosInf) in
-  let eqConstraint _ _ = Lattice.ScalarInfo (LB.NegInf, UB.PosInf) in
-  let neqConstraint _ _ = Lattice.ScalarInfo (LB.NegInf, UB.PosInf) in
+  let mkLT a b = Lattice.ScalarInfo (LB.NegInf, (minUB a (exclusive b))) in
+  let mkLE a b = Lattice.ScalarInfo (LB.NegInf, minUB a b) in
+  let mkGT a b = Lattice.ScalarInfo (maxLB a b, UB.PosInf) in
+  let mkGE a b = Lattice.ScalarInfo (maxLB a b, UB.PosInf) in
+  let mkEQ _ b = b in
+  let b x = Lattice.BoolInfo x in
   match comparison with
-  | Lambda.Clt -> {Lattice.ifTrue = mapFromTwo (left, ltConstraint left right)
-                                               (right, gtConstraint right left);
-                   Lattice.ifFalse = mapFromTwo (left, gteConstraint left right)
-                                                (right, lteConstraint right left)}
-
-  | Lambda.Cgt -> {Lattice.ifTrue = mapFromTwo (left, gtConstraint left right)
-                                               (right, ltConstraint right left);
-                   Lattice.ifFalse = mapFromTwo (left, lteConstraint left right)
-                                                (right, gteConstraint right left)}
-
-  | Lambda.Cle -> {Lattice.ifTrue = mapFromTwo (left, lteConstraint left right)
-                                                (right, gteConstraint right left);
-                    Lattice.ifFalse = mapFromTwo (left, gtConstraint left right)
-                                                 (right, ltConstraint right left)}
-
-  | Lambda.Cge -> {Lattice.ifTrue = mapFromTwo (left, gteConstraint left right)
-                                                (right, lteConstraint right left);
-                    Lattice.ifFalse = mapFromTwo (left, ltConstraint left right)
-                                                 (right, gtConstraint right left)}
-
-  | Lambda.Ceq -> {Lattice.ifTrue = mapFromTwo (left, eqConstraint left right)
-                                                (right, eqConstraint right left);
-                    Lattice.ifFalse = mapFromTwo (left, neqConstraint left right)
-                                                 (right, neqConstraint right left)}
-
-  | Lambda.Cneq -> {Lattice.ifTrue = mapFromTwo (left, neqConstraint left right)
-                                                (right, neqConstraint right left);
-                    Lattice.ifFalse = mapFromTwo (left, eqConstraint left right)
-                                                 (right, eqConstraint right left)}
-
-
+  | Lambda.Clt -> b{L.ifTrue = mapFromTwo  (leftVar, mkLT left right) (rightVar, mkGT right left);
+                    L.ifFalse = mapFromTwo (leftVar, mkGE left right) (rightVar, mkLE right left)}
+  | Lambda.Cgt -> b{L.ifTrue = mapFromTwo  (leftVar, mkGT left right) (rightVar, mkLT right left);
+                    L.ifFalse = mapFromTwo (leftVar, mkLE left right) (rightVar, mkGE right left)}
+  | Lambda.Cle -> b{L.ifTrue = mapFromTwo  (leftVar, mkLE left right) (rightVar, mkGE right left);
+                    L.ifFalse = mapFromTwo (leftVar, mkGT left right) (rightVar, mkLT right left)}
+  | Lambda.Cge -> b{L.ifTrue = mapFromTwo  (leftVar, mkGE left right) (rightVar, mkLE right left);
+                    L.ifFalse = mapFromTwo (leftVar, mkLT left right) (rightVar, mkGT right left)}
+  | Lambda.Ceq -> b{L.ifTrue = mapFromTwo  (leftVar, mkEQ left right) (rightVar, mkEQ right left);
+                    L.ifFalse = Lattice.VarMap.empty}
+  | Lambda.Cneq -> Lattice.NoInfo
 
 let rec add_constraints (known : Lattice.t) (flam : Flambda.t) : (Lattice.t * Lattice.varInfo) =
   match flam with
-  | Flambda.Var v -> (known, getVarInfo v known)
+  | Flambda.Var v -> (known, Lattice.getVar known v)
   | Flambda.Let {Flambda.var; Flambda.defining_expr; Flambda.body; _} ->
     let _ = print_string ("In a let with variable " ^ (Variable.unique_name var) ^ "\n") in
     let _ = if Variable.unique_name var = "match_32" then
@@ -160,7 +152,7 @@ let rec add_constraints (known : Lattice.t) (flam : Flambda.t) : (Lattice.t * La
      * condition will ever be true *)
     (known, Lattice.NoInfo)
   | Flambda.For { Flambda.body; _; } -> add_constraints known body
-  | Flambda.Proved_unreachable -> (known, Lattice.NoInfo)
+  | Flambda.Proved_unreachable -> (known, Lattice.NoInfo) (* TODO: return _|_ *)
   | _ -> (known, Lattice.NoInfo)
 and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice.t * Lattice.varInfo) =
   match named with
@@ -204,7 +196,7 @@ and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice
        | (Lambda.Parraylength _, [var]) ->
           Lattice.ScalarInfo (LB.zero, UB.UB (UB.LenAtom var))
        | (Lambda.Pintcomp comparison, left :: right :: []) ->
-         Lattice.BoolInfo (get_comparison_info known comparison left right)
+        get_comparison_info known comparison left right
        | _ -> Lattice.NoInfo
       in (known, info)
   | Flambda.Expr expr -> add_constraints known expr

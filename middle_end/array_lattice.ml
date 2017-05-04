@@ -43,7 +43,7 @@ struct
   type atom =
     | IntAtom of int64
     | LenAtom of Variable.t
-    | VarAtom of Variable.t
+    (* | VarAtom of Variable.t *)
   type t =
     | PosInf
     | UB of atom
@@ -56,16 +56,17 @@ struct
     match (a, b) with
     | (IntAtom x, IntAtom y) -> s (IntAtom (oper x y)) (* TODO: add widening operator *)
     | (LenAtom x, LenAtom y) -> if x = y then s a else k ()
-    | (VarAtom x, VarAtom y) -> if x = y then s a else k ()
+    (* | (VarAtom x, VarAtom y) -> if x = y then s a else k () *)
     | _ -> k ()
 
+  (* TODO-someday: handle join/merge for inclusiveUB and UB *)
   let join a b =
     match (a, b) with
     | (Undef, other) -> other
     | (other, Undef) -> other
     | (UB aa, UB bb) -> atomOp Widening.max (fun x -> UB x) (fun () -> top) aa bb
     | (InclusiveUB aa, InclusiveUB bb) ->
-       atomOp Widening.max (fun x -> UB x) (fun () -> top) aa bb
+       atomOp Widening.max (fun x -> InclusiveUB x) (fun () -> top) aa bb
     | _ -> top
   let meet a b =
     match (a, b) with
@@ -73,13 +74,13 @@ struct
     | (other, PosInf) -> other
     | (UB aa, UB bb) -> atomOp Widening.min (fun x -> UB x) (fun () -> bot) aa bb
     | (InclusiveUB aa, InclusiveUB bb) ->
-       atomOp Widening.min (fun x -> UB x) (fun () -> bot) aa bb
+       atomOp Widening.min (fun x -> InclusiveUB x) (fun () -> bot) aa bb
     | _ -> bot
   let leq a b = (join a b) = b
   let atom_to_string atom =
     match atom with
     | LenAtom var -> "LenAtom " ^ (Variable.unique_name var)
-    | VarAtom var -> "VarAtom " ^ (Variable.unique_name var)
+    (* | (* VarAtom *) var -> "VarAtom " ^ (Variable.unique_name var) *)
     | IntAtom i -> "IntAtom " ^ (Int64.to_string i)
 
   let to_string (t : t) =
@@ -121,6 +122,32 @@ struct
 end
 module LB = LowerBound (* Abbreviation *)
 
+module ArrayLengthLowerBound =
+struct
+  type t =
+    | PosInf
+    | ALB of int64
+    | Undef
+  let (bot, top) = (Undef, PosInf)
+  let join a b =
+    match (a, b) with
+    | (Undef, other) -> other
+    | (other, Undef) -> other
+    | (ALB aa, ALB bb) -> ALB (Widening.max aa bb)
+    | _ -> top
+  let meet a b =
+    match (a, b) with
+    | (PosInf, other) -> other
+    | (other, PosInf) -> other
+    | (ALB aa, ALB bb) -> ALB (Widening.min aa bb)
+    | _ -> bot
+  let to_string (t : t) =
+    match t with
+    | PosInf -> "+oo"
+    | ALB i -> "ArrayLB " ^ (Int64.to_string i)
+    | Undef -> "ArrayUndef"
+end
+module ALLB = ArrayLengthLowerBound
 
 module ScalarConstraint =
 struct
@@ -130,7 +157,7 @@ struct
   let join (alb, aub) (blb, bub) = (LB.join alb blb, UB.join aub bub)
   let meet (alb, aub) (blb, bub) = (LB.meet alb blb, UB.meet aub bub)
   let leq a b = (join a b) = b
-  let of_int64 (i : int64) = (LB.LB i, UB.UB (UB.IntAtom (Int64.succ i)))
+  let of_int64 (i : int64) = (LB.LB i, UB.InclusiveUB (UB.IntAtom i))
   let of_int32 i = of_int64 (Int64.of_int32 i)
   let of_nativeint i = of_int64 (Int64.of_nativeint i)
   let of_int i = of_int64 (Int64.of_int i)
@@ -138,11 +165,10 @@ struct
 end
 module SC = ScalarConstraint
 
-let rec zip (l1, l2) =
+let rec zipEq (l1, l2) =
   match (l1, l2) with
-  | ([], _) -> []
-  | (_, []) -> []
-  | (a :: l1', b :: l2') -> (a, b) :: (zip (l1', l2'))
+  | (a :: l1', b :: l2') -> (a, b) :: (zipEq (l1', l2'))
+  | _ -> raise Impossible
 
 (* TODO: Fix uses of add to join? *)
 module Lattice =
@@ -173,6 +199,7 @@ struct
   and varInfo =
     | BoolInfo of boolConstraints
     | ScalarInfo of ScalarConstraint.t
+    | ArrayOfLength of ALLB.t
     | NoInfo
     | SymInfo of varInfo list
   and boolConstraints = { ifTrue: varInfo VarMap.t; ifFalse: varInfo VarMap.t; }
@@ -186,6 +213,7 @@ struct
     match vi with
     | BoolInfo bc -> "BoolInfo(" ^ (bool_constraint_to_string bc) ^ ")"
     | ScalarInfo sc -> "ScalarInfo(" ^ (ScalarConstraint.to_string sc) ^ ")"
+    | ArrayOfLength sc -> "ArrayOfLength(" ^ (ALLB.to_string sc) ^ ")"
     | NoInfo -> "NoInfo"
     | SymInfo vis -> listToString "SymInfo" (List.map var_info_to_string vis)
   and var_map_to_string varMap =
@@ -227,8 +255,10 @@ struct
       }
     | (ScalarInfo aa, ScalarInfo bb) ->
       ScalarInfo (SC.join aa bb)
+    | (ArrayOfLength aa, ArrayOfLength bb) ->
+      ArrayOfLength (ALLB.join aa bb)
     | (SymInfo a, SymInfo b) ->
-       SymInfo (List.map (fun (a, b) -> joinVarInfo a b) (zip (a, b)))
+       SymInfo (List.map (fun (a, b) -> joinVarInfo a b) (zipEq (a, b)))
     | _ -> raise TypeMismatch
 
   let rec meet (aVar, aSym) (bVar, bSym) =
@@ -259,7 +289,9 @@ struct
     | (ScalarInfo aa, ScalarInfo bb) ->
       ScalarInfo (SC.meet aa bb)
     | (SymInfo a, SymInfo b) ->
-       SymInfo (List.map (fun (a, b) -> meetVarInfo a b) (zip (a, b)))
+       SymInfo (List.map (fun (a, b) -> meetVarInfo a b) (zipEq (a, b)))
+    | (ArrayOfLength aa, ArrayOfLength bb) ->
+       ArrayOfLength (ALLB.meet aa bb)
     | _ -> raise TypeMismatch
 
   (* TODO: this is not correct since we have Other = _|_ *)
@@ -273,6 +305,10 @@ struct
     if VarMap.mem var varLattice
     then Some (VarMap.find var varLattice)
     else None
+  let getVar sigma x =
+    match getVarOpt sigma x with
+    | Some x -> x
+    | None -> NoInfo
   let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap)
   let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap)
 end
