@@ -9,8 +9,12 @@ fi
 
 if [ -f $CONFIGURED_FLAG_FILE ]; then
   echo 'Already configured'
-  rm -f middle_end/array_optimizations.cm{o,x}
-  rm -f middle_end/array_sub_replace.cm{o,x}
+  rm -f middle_end/array_optimizations.cmo
+  rm -f middle_end/array_optimizations.cmx
+  rm -f middle_end/array_sub_replace.cmx
+  rm -f middle_end/array_sub_replace.cmo
+  rm -f middle_end/middle_end.cmo
+  rm -f middle_end/middle_end.cmx
 else
   ./configure -flambda -prefix `pwd`/install
   make world --quiet
