@@ -17,6 +17,7 @@ let pass_name = "optimize-array-accesses"
 let () = Pass_wrapper.register ~pass_name:pass_name
 
 open Array_optimizations
+open Array_lattice
 let x : Lattice.t = Lattice.bot
 
 (* TODO: generate lattice for entire program and store in a ref, using
@@ -88,15 +89,15 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
         let _ = print_string "Setting an array\n" in
         let _ = (match vars with
                  | [v] -> print_string ((Variable.unique_name v) ^ "\n")
-                 | _ -> print_string ((string_of_int (List.length vars)) ^ " " ^ (Array_optimizations.listToString "" (List.map Variable.unique_name vars)) ^"\n")) in
+                 | _ -> print_string ((string_of_int (List.length vars)) ^ " " ^ (listToString "" (List.map Variable.unique_name vars)) ^"\n")) in
         named
      | _ -> named)
 (* Oh no, globals! *)
 let latticeRef = ref (Lattice.VarMap.empty, Lattice.SymMap.empty)
 let analyze_and_ignore (expr : Flambda.t) : Lattice.varInfo =
-  let (lattice, varInfo) = try (Array_optimizations.add_constraints (!latticeRef) expr) with
+  let (lattice, varInfo) = try (add_constraints (!latticeRef) expr) with
                      | ex -> let () = print_string ("Got an exception\n" ^ Printexc.to_string ex) in
-                             (!latticeRef, Array_optimizations.Lattice.NoInfo)
+                             (!latticeRef, Lattice.NoInfo)
   in
   let _ = latticeRef := lattice in
   let _ = print_string ("Lattice is: " ^ (Lattice.to_string lattice) ^ "\n") in
@@ -104,10 +105,15 @@ let analyze_and_ignore (expr : Flambda.t) : Lattice.varInfo =
   varInfo
 
 let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
+  let iter_set_of_closures {Flambda.function_decls} =
+    Variable.Map.map (fun (fdecl: Flambda.function_declaration) ->
+        let body = fdecl.Flambda.body in
+        analyze_and_ignore body) (function_decls.Flambda.funs) in
   let rec iter_program_body (program : Flambda.program_body) =
   match program with
-  | Flambda.Let_symbol (_, Flambda.Set_of_closures _, program') ->
+  | Flambda.Let_symbol (_, Flambda.Set_of_closures set_of_closures, program') ->
      (* TODO Should we do this *)
+     let _ = iter_set_of_closures set_of_closures in
      iter_program_body program'
   | Flambda.Let_symbol (_, _, program') ->
      iter_program_body program'
