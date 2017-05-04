@@ -43,8 +43,17 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
   | Flambda.Send _ -> expr
   | Flambda.Assign _ -> expr
   | Flambda.If_then_else (v, thenB, elseB) ->
-     Flambda.If_then_else (v, optimize_array lattice thenB,
-                           optimize_array lattice elseB)
+     let (latticeT, latticeF) =
+       (match Lattice.getVarOpt lattice v with
+        | Some info ->
+           (match info with
+            | Lattice.BoolInfo {Lattice.ifTrue; Lattice.ifFalse} ->
+               (Lattice.VarMap.mergeVarMaps lattice ifTrue,
+               (Lattice.VarMap.mergeVarMaps lattice ifFalse))
+            | _ -> (lattice, lattice))
+        | None -> (lattice, lattice)) in
+     Flambda.If_then_else (v, optimize_array latticeT thenB,
+                           optimize_array latticeF elseB)
   | Flambda.Switch _ -> expr
   | Flambda.String_switch _ -> expr
   | Flambda.Static_raise _ -> expr

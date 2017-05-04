@@ -151,6 +151,12 @@ struct
       match v with
       | Some v -> add k v map
       | None -> map
+    (* runs in time proportional to size of map2.
+     * Elements of map2 get added in case of conflict. *)
+    let mergeVarMaps map1 map2 =
+      let addFn key v lattice =
+        Variable.Map.add key v (Variable.Map.remove key lattice) in
+      Variable.Map.fold addFn map2 map1
   end
 
   type t = varInfo VarMap.t
