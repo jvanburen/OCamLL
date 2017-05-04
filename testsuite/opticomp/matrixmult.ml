@@ -1,4 +1,4 @@
-(* Test taken from https://rosettacode.org/wiki/Matrix_multiplication#OCaml. *)
+ (* Test taken from https://rosettacode.org/wiki/Matrix_multiplication#OCaml. *)
 let matrix_multiply x y =
   let x0 = Array.length x
   and y0 = Array.length y in
@@ -13,6 +13,6 @@ let matrix_multiply x y =
   done;
   z
 
-let arrayA = Array.make_matrix 500 120 (-1)
-let arrayB = Array.make_matrix 120 800 (-1)
+let arrayA = Array.make_matrix 500 120 (1337)
+let arrayB = Array.make_matrix 120 800 (15745)
 let _ = matrix_multiply arrayA arrayB
