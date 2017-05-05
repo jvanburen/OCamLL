@@ -92,15 +92,15 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
   | Flambda.Move_within_set_of_closures _ -> named
   | Flambda.Project_var _ -> named
   | Flambda.Expr expr -> Flambda.Expr (optimize_array lattice expr)
-  | Flambda.Prim (prim, vars, _) ->
+  | Flambda.Prim (prim, vars, di) ->
      (match prim with
-     | Lambda.Parrayrefs _ ->
+     | Lambda.Parrayrefs arr_kind ->
         let _ = print_string "Got an array reference\n" in
-        named
-     | Lambda.Parraysets _ ->
+        Flambda.Prim (Lambda.Parrayrefu arr_kind, vars, di)
+     | Lambda.Parraysets arr_kind ->
         let _ = print_string "Setting an array\n" in
         let _ = print_string ((string_of_int (List.length vars)) ^ " " ^ (listToString "" (List.map Variable.unique_name vars)) ^"\n") in
-        named
+        Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
      | _ -> named)
 (* Oh no, globals! *)
 let latticeRef = ref (Lattice.VarMap.empty, Lattice.SymMap.empty)
@@ -111,7 +111,6 @@ let analyze_and_ignore (expr : Flambda.t) : Lattice.varInfo =
   in
   let _ = latticeRef := lattice in
   let _ = print_string ("Lattice is: " ^ (Lattice.to_string lattice) ^ "\n") in
-  let _ = optimize_array lattice expr in
   varInfo
 
 let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
@@ -166,5 +165,6 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
 
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
-  then (analyze_toplevel_of_program program; program)
+  then (analyze_toplevel_of_program program;
+        Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:(optimize_array !latticeRef))
   else program

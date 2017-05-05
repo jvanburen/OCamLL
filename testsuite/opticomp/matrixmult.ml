@@ -13,6 +13,6 @@ let matrix_multiply x y =
   done;
   z
 
-let arrayA = Array.make_matrix 500 120 (1337)
-let arrayB = Array.make_matrix 120 800 (15745)
+let arrayA = Array.make_matrix 500 240 (1337)
+let arrayB = Array.make_matrix 240 800 (15745)
 let _ = matrix_multiply arrayA arrayB
