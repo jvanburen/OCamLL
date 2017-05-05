@@ -118,13 +118,11 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
     Variable.Map.map (fun (fdecl: Flambda.function_declaration) ->
         let body = fdecl.Flambda.body in
         analyze_and_ignore body) (function_decls.Flambda.funs) in
-  let rec iter_program_body (program : Flambda.program_body) =
-  match program with
-  | Flambda.Let_symbol (_, Flambda.Set_of_closures set_of_closures, program') ->
-     (* TODO Should we do this *)
-     let _ = iter_set_of_closures set_of_closures in
-     iter_program_body program'
-  | Flambda.Let_symbol (sym, Flambda.Block (_, constant_defining_fields), program') ->
+  let iter_constant_defining_value (sym, constant_defining_value) =
+    match constant_defining_value with
+    | Flambda.Set_of_closures set_of_closures ->
+       let _ = iter_set_of_closures set_of_closures in ()
+    | Flambda.Block (_, constant_defining_fields) -> 
      let handle_field idx field =
        match field with
        | Flambda.Symbol s ->
@@ -137,20 +135,27 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
            | Flambda.Char _ -> Lattice.NoInfo
            | Flambda.Const_pointer _ -> Lattice.NoInfo) in
      let defnList = List.mapi handle_field constant_defining_fields in
-     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo defnList) (!latticeRef);
-     iter_program_body program'
-  | Flambda.Let_symbol (sym, Flambda.Allocated_const ac, program') ->
+     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo defnList) (!latticeRef)
+    | Flambda.Allocated_const ac -> 
      let info = (match ac with
                  | Allocated_const.Int32 i -> Lattice.ScalarInfo (SC.of_int32 i)
                  | Allocated_const.Int64 i -> Lattice.ScalarInfo (SC.of_int64 i)
                  | Allocated_const.Nativeint ni -> Lattice.ScalarInfo (SC.of_nativeint ni)
                  | _ -> Lattice.NoInfo) in
-     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [info]) (!latticeRef);
+     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [info]) (!latticeRef)
+    | Flambda.Project_closure _ -> 
+       latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [Lattice.NoInfo]) (!latticeRef) in
+  let rec iter_program_body (program : Flambda.program_body) =
+  match program with
+  | Flambda.Let_symbol (_, Flambda.Set_of_closures set_of_closures, program') ->
+     (* TODO Should we do this *)
+     let _ = iter_set_of_closures set_of_closures in
      iter_program_body program'
-  | Flambda.Let_symbol (sym, Flambda.Project_closure _, program') ->
-     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [Lattice.NoInfo]) (!latticeRef);
+  | Flambda.Let_symbol (sym, const_defining_value, program') ->
+     iter_constant_defining_value (sym, const_defining_value);
      iter_program_body program'
-  | Flambda.Let_rec_symbol (_, program') ->
+  | Flambda.Let_rec_symbol (symDefList, program') ->
+     List.iter iter_constant_defining_value symDefList;
      iter_program_body program'
   | Flambda.Initialize_symbol (symbol, _, fields, program') ->
      let varInfos = List.map analyze_and_ignore fields in
