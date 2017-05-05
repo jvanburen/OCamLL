@@ -126,18 +126,18 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
      let _ = iter_set_of_closures set_of_closures in
      iter_program_body program'
   | Flambda.Let_symbol (sym, Flambda.Block (_, constant_defining_fields), program') ->
-     let handle_field (field) =
+     let handle_field idx field =
        match field with
        | Flambda.Symbol s ->
           (match Lattice.getSymOpt (!latticeRef) s with
            | Some info -> info
-           | None -> Lattice.NoInfo)
+           | None -> Lattice.SymbolField (s, idx))
        | Flambda.Const const ->
           (match const with
            | Flambda.Int i -> Lattice.ScalarInfo (SC.of_int i)
            | Flambda.Char _ -> Lattice.NoInfo
            | Flambda.Const_pointer _ -> Lattice.NoInfo) in
-     let defnList = List.map handle_field constant_defining_fields in
+     let defnList = List.mapi handle_field constant_defining_fields in
      latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo defnList) (!latticeRef);
      iter_program_body program'
   | Flambda.Let_symbol (sym, Flambda.Allocated_const ac, program') ->
