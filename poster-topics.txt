@@ -1,0 +1,8 @@
+Main idea: Array optimizations <- Sinan
+Table of %savings <- Sinan
+Lattice Model <- Jacob
+ - the one we should have made
+ - one page with picture
+ - one page with motivation
+Dealing with unresolved symbols <- Sinan
+Functional dataflow analysis <- Jacob
