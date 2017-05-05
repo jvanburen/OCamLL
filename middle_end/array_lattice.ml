@@ -203,6 +203,7 @@ struct
     | ArrayOfLength of ALLB.t
     | NoInfo
     | SymInfo of varInfo list
+    | SymbolField of Symbol.t * int
   and boolConstraints = { ifTrue: varInfo VarMap.t; ifFalse: varInfo VarMap.t; }
   and tVarMap = varInfo VarMap.t
   (* boolConstraints is a Map from variable value to constraints *)
@@ -218,6 +219,7 @@ struct
     | ArrayOfLength sc -> "ArrayOfLength(" ^ (ALLB.to_string sc) ^ ")"
     | NoInfo -> "NoInfo"
     | SymInfo vis -> listToString "SymInfo" (List.map var_info_to_string vis)
+    | SymbolField (sym, idx) -> (Linkage_name.to_string (Symbol.label sym)) ^ ".(" ^ (string_of_int idx) ^ ")"
   and var_map_to_string varMap =
     let bindings = VarMap.bindings varMap in
     let strFn (k, v) = ((Variable.unique_name k) ^ ": " ^ var_info_to_string v) ^ "\n" in
@@ -263,8 +265,12 @@ struct
       ArrayOfLength (ALLB.join aa bb)
     | (SymInfo a, SymInfo b) ->
        SymInfo (List.map (fun (a, b) -> joinVarInfo a b) (zipEq (a, b)))
+    | (SymbolField (a, idxA), SymbolField (b, idxB)) ->
+       if a = b && idxA = idxB
+       then SymbolField (a, idxA)
+       else NoInfo
     | _ -> raise TypeMismatch
-
+                 
   let rec meet (aVar, aSym) (bVar, bSym) =
     let f _ a b =
       match (a, b) with
@@ -296,6 +302,9 @@ struct
        SymInfo (List.map (fun (a, b) -> meetVarInfo a b) (zipEq (a, b)))
     | (ArrayOfLength aa, ArrayOfLength bb) ->
        ArrayOfLength (ALLB.meet aa bb)
+    | (SymbolField (a, idxA), SymbolField (b, idxB)) -> if a = b && idxA = idxB
+                                                        then SymbolField (a, idxA)
+                                                        else NoInfo
     | _ -> raise TypeMismatch
 
   (* TODO: this is not correct since we have Other = _|_ *)
