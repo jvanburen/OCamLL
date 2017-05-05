@@ -66,7 +66,23 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
                        optimize_array lattice e2)
   | Flambda.While (e1, e2) -> Flambda.While (optimize_array lattice e1,
                                              optimize_array lattice e2)
-  | Flambda.For _ -> expr
+  | Flambda.For {Flambda.bound_var; Flambda.from_value;
+                 Flambda.to_value; Flambda.direction;
+                 Flambda.body} ->
+     let createConstraint low hi =
+       match (Lattice.getVarOpt lattice low, Lattice.getVarOpt lattice hi) with
+       | (Some (Lattice.ScalarInfo (lbLow, _)),
+          Some (Lattice.ScalarInfo (_, ubHi))) ->
+          Lattice.ScalarInfo (lbLow, ubHi)
+       | _ -> Lattice.NoInfo
+     in
+     let bound_info = (match direction with
+                      | Asttypes.Downto -> createConstraint to_value from_value
+                      | Asttypes.Upto -> createConstraint from_value to_value)
+     in
+     let lattice = Lattice.addVarInfo bound_var bound_info lattice in 
+     Flambda.For {bound_var; from_value; to_value; direction;
+                  Flambda.body = optimize_array lattice body}
   | Flambda.Proved_unreachable -> expr
 and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
   match named with
@@ -87,9 +103,7 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
         named
      | Lambda.Parraysets _ ->
         let _ = print_string "Setting an array\n" in
-        let _ = (match vars with
-                 | [v] -> print_string ((Variable.unique_name v) ^ "\n")
-                 | _ -> print_string ((string_of_int (List.length vars)) ^ " " ^ (listToString "" (List.map Variable.unique_name vars)) ^"\n")) in
+        let _ = print_string ((string_of_int (List.length vars)) ^ " " ^ (listToString "" (List.map Variable.unique_name vars)) ^"\n") in
         named
      | _ -> named)
 (* Oh no, globals! *)
