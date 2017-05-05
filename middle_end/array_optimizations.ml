@@ -127,7 +127,9 @@ and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice
          (match Lattice.getSymOpt known sym with
           | Some (Lattice.SymInfo fieldInfoList) -> List.nth fieldInfoList idx
           | _ -> Lattice.NoInfo) in
-     let fieldInfo = if fieldInfo = Lattice.NoInfo then Lattice.SymbolField (sym, idx) else Lattice.NoInfo in
+     let fieldInfo = if fieldInfo = Lattice.NoInfo
+                     then Lattice.SymbolField (sym, idx)
+                     else fieldInfo in
      (known, fieldInfo)
   | Flambda.Set_of_closures {Flambda.function_decls = {Flambda.funs; _}; _} ->
      let bindings = Variable.Map.bindings funs in
