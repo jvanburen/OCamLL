@@ -150,7 +150,7 @@ and get_comparison_info (sigma : Lattice.t)
                         (leftVar : Variable.t)
                         (rightVar : Variable.t) =
   let module L = Lattice in
-  let exclusive x = x in
+  let exclusive x = x in (* TODO-someday: Fix me. Please. *)
   let minUB a b = match (a, b) with
     | (L.ScalarInfo (_, aa), L.ScalarInfo (_, bb)) ->
       let j = UB.join aa bb in
@@ -167,7 +167,7 @@ and get_comparison_info (sigma : Lattice.t)
     | _ -> raise Impossible in
   let left = Lattice.getVar sigma leftVar in
   let right = Lattice.getVar sigma rightVar in
-  (* TODO: implement these, but less bad. *)
+  (* TODO-someday: implement these, but less bad. *)
   let mapFromTwo (k1, v1) (k2, v2) =
     Lattice.VarMap.add k1 v1 (Lattice.VarMap.singleton k2 v2) in
   let mkLT a b = Lattice.ScalarInfo (LB.NegInf, (minUB a (exclusive b))) in

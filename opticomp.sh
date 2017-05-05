@@ -13,6 +13,8 @@ if [ -f $CONFIGURED_FLAG_FILE ]; then
   rm -f middle_end/array_optimizations.cmx
   rm -f middle_end/array_sub_replace.cmx
   rm -f middle_end/array_sub_replace.cmo
+  rm -f middle_end/array_lattice.cmx
+  rm -f middle_end/array_lattice.cmo
   rm -f middle_end/middle_end.cmo
   rm -f middle_end/middle_end.cmx
 else

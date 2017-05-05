@@ -47,13 +47,9 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
      let (varInfo, symInfo) = lattice in
      let (latticeT, latticeF) =
        (match Lattice.getVarOpt lattice v with
-        | Some info ->
-           (match info with
-            | Lattice.BoolInfo {Lattice.ifTrue; Lattice.ifFalse} ->
-               (Lattice.VarMap.mergeVarMaps varInfo ifTrue,
-               (Lattice.VarMap.mergeVarMaps varInfo ifFalse))
-            | _ -> (varInfo, varInfo))
-        | None -> (varInfo, varInfo)) in
+        | Some (Lattice.BoolInfo boolInfo) ->
+          Lattice.applyBoolInfo varInfo boolInfo
+        | _ -> (varInfo, varInfo)) in
      Flambda.If_then_else (v, optimize_array (latticeT, symInfo) thenB,
                            optimize_array (latticeF, symInfo) elseB)
   | Flambda.Switch _ -> expr
@@ -80,7 +76,7 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
                       | Asttypes.Downto -> createConstraint to_value from_value
                       | Asttypes.Upto -> createConstraint from_value to_value)
      in
-     let lattice = Lattice.addVarInfo bound_var bound_info lattice in 
+     let lattice = Lattice.addVarInfo bound_var bound_info lattice in
      Flambda.For {bound_var; from_value; to_value; direction;
                   Flambda.body = optimize_array lattice body}
   | Flambda.Proved_unreachable -> expr
@@ -157,7 +153,7 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
   | Flambda.End _ -> print_string "end\n"
   in
   iter_program_body program_body
-    
+
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
   then (analyze_toplevel_of_program program; program)

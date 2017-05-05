@@ -182,10 +182,10 @@ struct
       | None -> map
     (* runs in time proportional to size of map2.
      * Elements of map2 get added in case of conflict. *)
-    let mergeVarMaps map1 map2 =
+    (* let mergeVarMaps map1 map2 =
       let addFn key v lattice =
         Variable.Map.add key v (Variable.Map.remove key lattice) in
-      Variable.Map.fold addFn map2 map1
+      Variable.Map.fold addFn map2 map1 *)
   end
   module SymMap =
   struct
@@ -203,6 +203,7 @@ struct
     | NoInfo
     | SymInfo of varInfo list
   and boolConstraints = { ifTrue: varInfo VarMap.t; ifFalse: varInfo VarMap.t; }
+  and tVarMap = varInfo VarMap.t
   (* boolConstraints is a Map from variable value to constraints *)
 
   let bot = (VarMap.empty, SymMap.empty)
@@ -237,7 +238,7 @@ struct
       | (Some _, None) -> a
       | (None, Some _) -> b
       | (None, None) -> raise Impossible
-    in (joinVarMap a b, SymMap.merge f aSym bSym)
+    in SymMap.merge f a b
   and joinVarMap a b =
     let f _ a b =
       match (a, b) with
@@ -313,4 +314,15 @@ struct
     | None -> NoInfo
   let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap)
   let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap)
+
+  let applyBoolInfo (varMap : tVarMap) (boolInfo : boolConstraints) : (tVarMap * tVarMap) =
+    let f _ c1 c2 =
+      match (c1, c2) with
+      | (Some c1, Some c2) -> Some (meetVarInfo c1 c2)
+      | (Some x, None) -> Some x
+      | (None, Some x) -> Some x
+      | (None, None) -> raise (Failure "Merging nothing?")
+    in (VarMap.merge f varMap boolInfo.ifTrue,
+        VarMap.merge f varMap boolInfo.ifFalse)
+
 end
