@@ -229,6 +229,8 @@ struct
     varDisplay ^ symDisplay ^ "\n"
 
   let rec join (a, aSym) (b, bSym) =
+    (joinVarMap a b, joinSymMap aSym bSym)
+  and joinSymMap a b =
     let f _ a b =
       match (a, b) with
       | (Some aa, Some bb) -> Some (joinVarInfo aa bb)
