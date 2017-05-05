@@ -140,7 +140,17 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
      let defnList = List.map handle_field constant_defining_fields in
      latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo defnList) (!latticeRef);
      iter_program_body program'
-  | Flambda.Let_symbol (_, _, program') -> iter_program_body program'
+  | Flambda.Let_symbol (sym, Flambda.Allocated_const ac, program') ->
+     let info = (match ac with
+                 | Allocated_const.Int32 i -> Lattice.ScalarInfo (SC.of_int32 i)
+                 | Allocated_const.Int64 i -> Lattice.ScalarInfo (SC.of_int64 i)
+                 | Allocated_const.Nativeint ni -> Lattice.ScalarInfo (SC.of_nativeint ni)
+                 | _ -> Lattice.NoInfo) in
+     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [info]) (!latticeRef);
+     iter_program_body program'
+  | Flambda.Let_symbol (sym, Flambda.Project_closure _, program') ->
+     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [Lattice.NoInfo]) (!latticeRef);
+     iter_program_body program'
   | Flambda.Let_rec_symbol (_, program') ->
      iter_program_body program'
   | Flambda.Initialize_symbol (symbol, _, fields, program') ->

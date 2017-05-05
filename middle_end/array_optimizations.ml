@@ -157,14 +157,14 @@ and get_comparison_info (sigma : Lattice.t)
       if j = bb      then aa
       else if j = aa then bb
                      else aa
-    | _ -> raise Impossible in
+    | _ -> raise (Impossible "minUB") in
   let maxLB a b = match (a, b) with
     | (L.ScalarInfo (aa, _), L.ScalarInfo (bb, _)) ->
       let j = LB.join aa bb in
       if j = bb      then aa
       else if j = aa then bb
                      else aa
-    | _ -> raise Impossible in
+    | _ -> raise (Impossible "maxLB") in
   let left = Lattice.getVar sigma leftVar in
   let right = Lattice.getVar sigma rightVar in
   (* TODO-someday: implement these, but less bad. *)

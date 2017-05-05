@@ -15,7 +15,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
-exception Impossible
+exception Impossible of string
 exception TypeMismatch
 
 
@@ -168,8 +168,9 @@ module SC = ScalarConstraint
 let rec zipEq (l1, l2) =
   match (l1, l2) with
   | (a :: l1', b :: l2') -> (a, b) :: (zipEq (l1', l2'))
-  | _ -> raise Impossible
-
+  | ([], []) -> []
+  | _ -> raise (Impossible "Zip")
+               
 (* TODO: Fix uses of add to join? *)
 module Lattice =
 struct
@@ -237,7 +238,7 @@ struct
       | (Some aa, Some bb) -> Some (joinVarInfo aa bb)
       | (Some _, None) -> a
       | (None, Some _) -> b
-      | (None, None) -> raise Impossible
+      | (None, None) -> raise (Impossible "joinSymMap")
     in SymMap.merge f a b
   and joinVarMap a b =
     let f _ a b =
@@ -245,7 +246,7 @@ struct
       | (Some aa, Some bb) -> Some (joinVarInfo aa bb)
       | (Some _, None) -> a
       | (None, Some _) -> b
-      | (None, None) -> raise Impossible
+      | (None, None) -> raise (Impossible "joinVarMap")
     in VarMap.merge f a b
   and joinVarInfo a b =
     match (a, b) with
@@ -270,7 +271,7 @@ struct
       | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
       | (Some _, None) -> a
       | (None, Some _) -> b
-      | (None, None) -> raise Impossible
+      | (None, None) -> raise (Impossible "Meet")
     in (meetVarInfo aVar bVar, SymMap.merge f aSym bSym)
   and meetVarMap a b =
     let f _ a b =
@@ -278,7 +279,7 @@ struct
       | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
       | (Some _, None) -> a
       | (None, Some _) -> b
-      | (None, None) -> raise Impossible
+      | (None, None) -> raise (Impossible "MeetVarMap")
     in VarMap.merge f a b
   and meetVarInfo a b =
     match (a, b) with
