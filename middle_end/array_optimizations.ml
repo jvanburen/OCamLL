@@ -138,7 +138,17 @@ and add_constraints_named (known : Lattice.t) (named : Flambda.named) : (Lattice
       let info = match (prim, vars) with
        (* Ensure we're only looking at the length of a single array. *)
        | (Lambda.Parraylength _, [var]) ->
-          Lattice.ScalarInfo (LB.zero, UB.UB (UB.LenAtom var))
+          (match Lattice.getVarOpt known var with
+          | Some Lattice.NoInfo -> Lattice.ScalarInfo(LB.zero, UB.PosInf) (* Should this be NoInfo? *)
+          | Some (Lattice.ArrayOfLength _) ->
+              Lattice.ScalarInfo (LB.zero, UB.UB (UB.LenAtom var))
+          | Some (Lattice.SymbolField (x, i)) ->
+              Lattice.ScalarInfo(LB.zero, UB.UB (UB.LenSymAtom (x, i)))
+            (* HACK TODO (None case): We should be assuming NoInfo here, and only using these if the variable is not free *)
+          | None -> Lattice.ScalarInfo(LB.zero, UB.UB (UB.LenAtom var))
+          | Some _ -> raise TypeMismatch
+          )
+          (* Lattice.ScalarInfo (LB.zero, UB.UB (UB.LenAtom var)) *)
        | (Lambda.Pintcomp comparison, left :: right :: []) ->
         get_comparison_info known comparison left right
        | _ -> Lattice.NoInfo

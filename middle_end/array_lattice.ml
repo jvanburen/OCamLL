@@ -42,8 +42,8 @@ module UpperBound =
 struct
   type atom =
     | IntAtom of int64
-    | LenAtom of Variable.t
-    (* | VarAtom of Variable.t *)
+    | LenAtom of Variable.t (* Must be free in the program *)
+    | LenSymAtom of (Symbol.t * int) (* Symbol must be free in the program *)
   type t =
     | PosInf
     | UB of atom
@@ -56,6 +56,7 @@ struct
     match (a, b) with
     | (IntAtom x, IntAtom y) -> s (IntAtom (oper x y)) (* TODO: add widening operator *)
     | (LenAtom x, LenAtom y) -> if x = y then s a else k ()
+    | (LenSymAtom x, LenSymAtom y) -> if x = y then s a else k ()
     (* | (VarAtom x, VarAtom y) -> if x = y then s a else k () *)
     | _ -> k ()
 
@@ -80,6 +81,7 @@ struct
   let atom_to_string atom =
     match atom with
     | LenAtom var -> "LenAtom " ^ (Variable.unique_name var)
+    | LenSymAtom (var, i) -> "LenSymAtom " ^ (Linkage_name.to_string (Symbol.label var)) ^ "(" ^(string_of_int i) ^")"
     (* | (* VarAtom *) var -> "VarAtom " ^ (Variable.unique_name var) *)
     | IntAtom i -> "IntAtom " ^ (Int64.to_string i)
 
@@ -170,7 +172,7 @@ let rec zipEq (l1, l2) =
   | (a :: l1', b :: l2') -> (a, b) :: (zipEq (l1', l2'))
   | ([], []) -> []
   | _ -> raise (Impossible "Zip")
-               
+
 (* TODO: Fix uses of add to join? *)
 module Lattice =
 struct
@@ -204,6 +206,7 @@ struct
     | NoInfo
     | SymInfo of varInfo list
     | SymbolField of Symbol.t * int
+    (* TODO: add free vars to lattice *)
   and boolConstraints = { ifTrue: varInfo VarMap.t; ifFalse: varInfo VarMap.t; }
   and tVarMap = varInfo VarMap.t
   (* boolConstraints is a Map from variable value to constraints *)
@@ -270,7 +273,7 @@ struct
        then SymbolField (a, idxA)
        else NoInfo
     | _ -> raise TypeMismatch
-                 
+
   let rec meet (aVar, aSym) (bVar, bSym) =
     let f _ a b =
       match (a, b) with
