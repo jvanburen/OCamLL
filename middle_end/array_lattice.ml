@@ -54,40 +54,40 @@ struct
         | (_, Zero) -> 1
         | (Var x, Var y) -> Variable.compare x y
         | (Var _, _) -> -1
-        | (_, Var_ ) -> 1
-        | (SymField (e1, i1), SymField (e2, i2)) ->
-          if i1 = i2
-            then Symbol.compare x y
-            else Int.compare i1 i2
+        | (_, Var _) -> 1
+        | (SymField (s1, i1), SymField (s2, i2)) ->
+          if i1 <> i2 then i1 - i2
+          else Symbol.compare s1 s2
+
 
     let equal x y = (x == y) || (compare x y = 0)
     let output chan t = match t with
       | Var v -> Variable.output chan v
       | SymField (sym, i) ->
-          (Symbol.output sym; output_string chan (string_of_int i))
+          (Symbol.output chan sym; output_string chan (string_of_int i))
       | Zero -> output_string chan "Zero"
     let hash t = match t with
-      | Var v -> v.hash
-      | SymField (sym, _) -> sym.hash
+      | Var v -> Variable.hash v
+      | SymField (sym, i) -> Symbol.hash sym lxor (i + (i lsl 16))
       | Zero -> 0
     let print ppf t = match t with
       | Var v -> Variable.print ppf v
       | Zero -> Format.pp_print_string ppf "Zero"
       | SymField (sym, i) -> (
           Symbol.print ppf sym;
-          Format.pp_print_string ppf ("(" ^ string_of_int i ^ ")");
+          Format.pp_print_string ppf ("(" ^ string_of_int i ^ ")")
         )
   end)
 
-  let of_sym (sym, i) = Sym sym i
-  let of_var var = Var var
+  let of_sym (sym, i) = (SymField (sym, i))
+  let of_var var = (Var var)
 end
 module K = Key
 
 module type LatticeOps =
 sig
-  val joinTwo : Key.t -> int64 -> int64 -> int64 option
-  val meetTwo : Key.t -> int64 -> int64 -> int64 option
+  val joinOffsets : Key.t -> int64 -> int64 -> int64 option
+  val meetOffsets : Key.t -> int64 -> int64 -> int64 option
 end
 module KeyLattice (Ops : LatticeOps) =
 struct
@@ -105,13 +105,13 @@ struct
   (* Move higher in the lattice (towards Top) *)
   let join a b =
     let f k x y = match (x, y) with
-      | (Some x, Some y) -> Ops.joinTwo k x y
+      | (Some x, Some y) -> Ops.joinOffsets k x y
       | (None, _) -> None
       | (_, None) -> None
     in Key.Map.merge f a b
   let meet a b =
     let f k x y = match (x, y) with
-      | (Some x, Some y) -> Ops.meetTwo k x y
+      | (Some x, Some y) -> Ops.meetOffsets k x y
       | (None, other) -> other
       | (other, None) -> other
     in Key.Map.merge f a b
@@ -122,21 +122,21 @@ struct
 end
 
 module UpperBound = KeyLattice(struct
-  let joinTwo _ = Widening.max
-  let meetTwo _ = Widening.min
+  let joinOffsets _ x y = Some (Widening.max x y)
+  let meetOffsets _ x y = Some (Widening.min x y)
 end) module UB = UpperBound
 
 module LowerBound = KeyLattice(struct
-  let joinTwo _ = Widening.min
-  let meetTwo _ = Widening.max
+  let joinOffsets _ x y = Some (Widening.min x y)
+  let meetOffsets _ x y = Some (Widening.max x y)
 end) module LB = LowerBound
 
 module ScalarConstraint =
 struct
   type t = {lb: LB.t; ub: UB.t} (* Ranges are inclusive *)
   let top = {lb = LB.top; ub = UB.top}
-  let join a b = {lb = LB.join a.lb b.lb, ub = UB.join a.ub b.ub}
-  let meet a b = {lb = LB.meet a.lb b.lb, ub = UB.meet a.ub b.ub}
+  let join a b = {lb = LB.join a.lb b.lb; ub = UB.join a.ub b.ub}
+  let meet a b = {lb = LB.meet a.lb b.lb; ub = UB.meet a.ub b.ub}
   let leq a b = (LB.leq a.lb b.lb && UB.leq a.ub b.ub)
 
   let of_int64 (i : int64) = (LB.of_int64 i, UB.of_int64 i)
@@ -144,7 +144,8 @@ struct
   let of_nativeint i = of_int64 (Int64.of_nativeint i)
   let of_int i = of_int64 (Int64.of_int i)
 
-  let print ppf ((lbs, ubs) : t) : unit =
+  let print ppf (sc : t) : unit =
+    let open Format in
     let print_entry k x y = (
       pp_open_hbox ppf ();
       pp_print_string ppf "(";
@@ -155,12 +156,12 @@ struct
       pp_print_string ppf (match x with
                           | Some x ->  ("[" ^ Int64.to_string x ^ ",")
                           | None -> "(-oo,"
-                          )
+                          );
       pp_print_space ppf ();
       pp_print_string ppf (match y with
                           | Some y -> (Int64.to_string y ^ "]")
                           | None -> "+oo)"
-                          )
+                          );
       pp_close_box ppf ();
       pp_print_string ppf ")";
       pp_close_box ppf ();
@@ -168,9 +169,9 @@ struct
       None (* We're using the merge function, so whatever *)
     ) in (
       pp_open_hvbox ppf 2;
-      pp_print_string ppf "ScalarConstraints{"
+      pp_print_string ppf "ScalarConstraints{";
       pp_print_space ppf ();
-      ignore (Key.Map.merge print_entry lbs ubs);
+      ignore (Key.Map.merge print_entry sc.lb sc.ub);
       pp_print_cut ppf ();
       pp_print_string ppf "}";
       pp_close_box ppf ()
@@ -198,8 +199,9 @@ struct
 
   let bot = KeyMap.empty (* Initial value for analysis woohoo *)
   (* Top is never used explicitly *)
-  let rec print ppf (lattice : t) : unit =
-    let print_entry k x = begin
+  let rec print ppf (lattice : t) : unit = begin
+    let open Format in
+    let print_entry k x = (
       pp_open_hvbox ppf 2;
       pp_print_string ppf "(";
       Key.print ppf k;
@@ -215,9 +217,9 @@ struct
           print ppf boolInfo.ifTrue;
           pp_print_space ppf ();
           pp_print_string ppf "F->";
-          pp_print_break 1 3 ();
+          pp_print_break ppf 1 3;
           print ppf boolInfo.ifFalse;
-          pp_close_box();
+          pp_close_box ppf ();
         )
       | ScalarInfo sc -> SC.print ppf sc
       | ArrayOfLength sc -> (pp_open_hbox ppf ();
@@ -230,15 +232,15 @@ struct
       pp_print_string ppf ")";
       pp_close_box ppf ();
       pp_print_cut ppf ()
-    end in
-    begin
+    ) in (
       pp_open_vbox ppf 2;
-      pp_print_string ppf "Lattice:{"
+      pp_print_string ppf "Lattice:{";
       pp_print_space ppf ();
       KeyMap.iter print_entry lattice;
       pp_print_string ppf "}";
-      pp_close_box ppf ()
+      pp_close_box ppf () )
     end
+
 
   let rec join a b =
     let f _ a b =
@@ -257,10 +259,10 @@ struct
                                       ifFalse = join aa.ifFalse bb.ifFalse;
                                     }
     | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.join aa bb)
-    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (ALLB.join aa bb)
+    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (SC.join aa bb)
     | _ -> raise TypeMismatch
 
-  let rec meet a =
+  let rec meet a b =
     let f _ a b =
       match (a, b) with
       | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
@@ -277,26 +279,17 @@ struct
                                       ifFalse = meet aa.ifFalse bb.ifFalse;
                                     }
     | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.meet aa bb)
-    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (ALLB.meet aa bb)
+    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (SC.meet aa bb)
     | _ -> raise TypeMismatch
 
 
-  (* TODO: this is not correct since we have Other = _|_ *)
+  (* TODO: leq is not correct since we have Other = _|_ *)
   (* let leq a b = join a b = b *)
-(*
-  let getSymOpt ((_, symLattice) : t) (sym : Symbol.t) =
-    if SymMap.mem sym symLattice
-    then Some (SymMap.find sym symLattice)
-    else None *)
-  (* let getVarOpt ((varLattice, _) : t) (var : Variable.t) =
-    if VarMap.mem var varLattice
-    then Some (VarMap.find var varLattice)
-    else None *)
   let getKey sigma k =
-    try Some (VarMap.find sigma k)
+    try Some (KeyMap.find sigma k)
     with Not_found -> None
 
-  let getkey_exn sigma k = VarMap.find sigma k
+  let getKey_exn sigma k = KeyMap.find sigma k
   (* let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap) *)
   (* let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap) *)
 
