@@ -29,6 +29,8 @@ let x : Lattice.t = Lattice.bot
   to update the code
 
   TODO: array accesses in for-loops: should we be hoisting out a bounds check?
+
+  TODO: add free variables lattice before looking into functions
 *)
 
 let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
@@ -103,7 +105,7 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
         Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
      | _ -> named)
 (* Oh no, globals! *)
-let latticeRef = ref (Lattice.VarMap.empty, Lattice.SymMap.empty)
+let latticeRef = ref Lattice.bot
 let analyze_and_ignore (expr : Flambda.t) : Lattice.varInfo =
   let (lattice, varInfo) = try (add_constraints (!latticeRef) expr) with
                      | ex -> let () = print_string ("Got an exception\n" ^ Printexc.to_string ex) in
@@ -122,7 +124,7 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
     match constant_defining_value with
     | Flambda.Set_of_closures set_of_closures ->
        let _ = iter_set_of_closures set_of_closures in ()
-    | Flambda.Block (_, constant_defining_fields) -> 
+    | Flambda.Block (_, constant_defining_fields) ->
      let handle_field idx field =
        match field with
        | Flambda.Symbol s ->
@@ -136,14 +138,14 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
            | Flambda.Const_pointer _ -> Lattice.NoInfo) in
      let defnList = List.mapi handle_field constant_defining_fields in
      latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo defnList) (!latticeRef)
-    | Flambda.Allocated_const ac -> 
+    | Flambda.Allocated_const ac ->
      let info = (match ac with
                  | Allocated_const.Int32 i -> Lattice.ScalarInfo (SC.of_int32 i)
                  | Allocated_const.Int64 i -> Lattice.ScalarInfo (SC.of_int64 i)
                  | Allocated_const.Nativeint ni -> Lattice.ScalarInfo (SC.of_nativeint ni)
                  | _ -> Lattice.NoInfo) in
      latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [info]) (!latticeRef)
-    | Flambda.Project_closure _ -> 
+    | Flambda.Project_closure _ ->
        latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [Lattice.NoInfo]) (!latticeRef) in
   let rec iter_program_body (program : Flambda.program_body) =
   match program with

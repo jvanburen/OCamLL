@@ -41,6 +41,11 @@ struct
 end
 
 (* Lattice Keys (symbol fields or variables) *)
+(* This cleans up our immutable variable analysis considerably.
+   The next step would be to add mutable variables.
+   A major problem with this is that we don't distinguish at all between mutable and immutable variables.
+   Such a problem will certainly confuse efforts later when we have code that modifies globals
+*)
 module Key =
 struct
   type t =
@@ -120,9 +125,12 @@ struct
       | (other, None) -> other
     in Key.Map.merge f a b
   let leq a b = (join a b) = b (* TODO-someday: make this more efficient *)
+  let plus_constant (c : int64) (lat : t) : t = Key.Map.map (fun x -> x + c) lat
 
   let of_offset k (v : int64) = Key.Map.singleton k v
+  let of_key k = Key.Map.singleton k 0
   let of_int64 v = of_offset Key.Zero v
+
 end
 
 module UpperBound = KeyLattice(struct
@@ -143,13 +151,19 @@ struct
   let meet a b = {lb = LB.meet a.lb b.lb; ub = UB.meet a.ub b.ub}
   let leq a b = (LB.leq a.lb b.lb && UB.leq a.ub b.ub)
 
+  let plus_constant (c : int64) (sc : t) : t =
+    {lb = LB.plus_constant c sc.lb;
+     ub = UB.plus_constant c sc.ub}
+
   let of_int64 (i : int64) = (LB.of_int64 i, UB.of_int64 i)
   let of_int32 i = of_int64 (Int64.of_int32 i)
   let of_nativeint i = of_int64 (Int64.of_nativeint i)
   let of_int i = of_int64 (Int64.of_int i)
+  let of_key i = (LB.of_var i, UB.of_var i)
 
   let of_upper_bound ub = {lb=LB.top; ub=ub}
   let of_lower_bound lb = {lb=lb; ub=UB.top}
+  let nonnegative = of_lower_bound (LB.of_int64 0)
 
   let print ppf (sc : t) : unit =
     let open Format in
@@ -288,7 +302,19 @@ struct
     try Some (KeyMap.find sigma k)
     with Not_found -> None
 
+  let getVar_top sigma v =
+    match getKey sigma (K.of_var v) with
+    | Some x -> x
+    | None -> Anything
+
+  let getSymField_top sigma sym i =
+    match getKey sigma (K.of_sym (sym, i)) with
+    | Some x -> x
+    | None -> Anything
+
   let getKey_exn sigma k = KeyMap.find sigma k
+
+  let updateVar var info sigma = KeyMap.add (Key.of_var var) info sigma
   (* let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap) *)
   (* let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap) *)
 
@@ -296,20 +322,27 @@ struct
     { ifTrue = KeyMap.union_merge meetVarInfo sigma boolInfo.ifTrue;
       ifFalse = KeyMap.union_merge meetVarInfo sigma boolInfo.ifFalse;
     }
+
+  let addFreeVars (vars : Variable.Set.t) (sigma : t) : t =
+    let addvar var s =
+      KeyMap.add (Key.of_var var) (ArrayOfLength (SC.of_var var)) s
+    in
+      Variable.Set.fold addvar vars sigma
+
+
+
 end
+module L = Lattice
 
 (* Don't know how to implement this yet.
    This is a simple abstract interface allowing me to fix up array_optis
    before we deal with it *)
 module ProgramLattices =
 struct
-  type t = Lattice.t
-  let initial = Lattice.bot
+  type t = unit
+  let initial = ()
   let updateOut (_ : t)
                 (_ : Flambda.t)
-                ((lat , vi) : Lattice.t * Lattice.varInfo)  = (lat, vi)
-  let updateOutNamed (_ : t)
-                     (_ : Flambda.named)
-                     ((lat , vi) : Lattice.t * Lattice.varInfo) = (lat, vi)
+                (lat: Lattice.t) = lat
   (* Idea: let statements could be identified by the variable they define *)
 end module LL = ProgramLattices
