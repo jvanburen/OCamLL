@@ -84,46 +84,15 @@ struct
 end
 module K = Key
 
-module LowerBound =
-struct
-  type t =
-    | NegInf (* Top *)
-    | LB of int64
-    | Undef  (* Bot *)
-  let (bot, top) = (Undef, NegInf)
-
-  let join a b =
-    match (a, b) with
-    | (Undef, other) -> other
-    | (other, Undef) -> other
-    | (LB aa, LB bb) -> LB (Widening.min aa bb)
-    | _ -> top
-  let meet a b =
-    match (a, b) with
-    | (NegInf, other) -> other
-    | (other, NegInf) -> other
-    | (LB aa, LB bb) -> LB (Widening.max aa bb)
-    | _ -> bot
-  let zero = LB Int64.zero
-  let leq a b = (join a b) = b
-  let to_string (t : t) =
-    match t with
-    | NegInf -> "NegInf"
-    | LB i -> "LB " ^ (Int64.to_string i)
-    | Undef -> "Undef"
+module type LatticeOps =
+sig
+  val joinTwo : Key.t -> int64 -> int64 -> int64 option
+  val meetTwo : Key.t -> int64 -> int64 -> int64 option
 end
-module LB = LowerBound (* Abbreviation *)
-
-(* module Atom =
+module KeyLattice (Ops : LatticeOps) =
 struct
-  type t =
-    | Int of int64
-    | LenOf of Key.t (* Must be free in the AST *)
-end *)
-
-module UpperBound =
-struct
-  (* We keep a map of multiple upper bounds
+  (* For upper bounds:
+  We keep a map of multiple upper bounds
   k -> v means we're bounded above by k + v
   if a key is not in the map it's equivalent to k -> +oo.
   Hence Top for this lattice is the empty map, i.e., we're bounded above by nothing
@@ -131,255 +100,208 @@ struct
       where the absence of a value is a _|_
   *)
   type t = int64 Key.Map.t (* offsets *)
-
+  let top = Key.Map.empty
 
   (* Move higher in the lattice (towards Top) *)
   let join a b =
-    match (a, b) with
-    | (Undef, other) -> other
-    | (other, Undef) -> other
-    | (UB aa, UB bb) -> atomOp Widening.max (fun x -> UB x) (fun () -> top) aa bb
-    | (InclusiveUB aa, InclusiveUB bb) ->
-       atomOp Widening.max (fun x -> InclusiveUB x) (fun () -> top) aa bb
-    | _ -> top
+    let f k x y = match (x, y) with
+      | (Some x, Some y) -> Ops.joinTwo k x y
+      | (None, _) -> None
+      | (_, None) -> None
+    in Key.Map.merge f a b
   let meet a b =
-    match (a, b) with
-    | (PosInf, other) -> other
-    | (other, PosInf) -> other
-    | (UB aa, UB bb) -> atomOp Widening.min (fun x -> UB x) (fun () -> bot) aa bb
-    | (InclusiveUB aa, InclusiveUB bb) ->
-       atomOp Widening.min (fun x -> InclusiveUB x) (fun () -> bot) aa bb
-    | _ -> bot
-  let leq a b = (join a b) = b
-  let atom_to_string atom =
-    match atom with
-    | LenAtom var -> "LenAtom " ^ (Variable.unique_name var)
-    | LenSymAtom (var, i) -> "LenSymAtom " ^ (Linkage_name.to_string (Symbol.label var)) ^ "(" ^(string_of_int i) ^")"
-    (* | (* VarAtom *) var -> "VarAtom " ^ (Variable.unique_name var) *)
-    | IntAtom i -> "IntAtom " ^ (Int64.to_string i)
+    let f k x y = match (x, y) with
+      | (Some x, Some y) -> Ops.meetTwo k x y
+      | (None, other) -> other
+      | (other, None) -> other
+    in Key.Map.merge f a b
+  let leq a b = (join a b) = b (* TODO-someday: make this more efficient *)
 
-  let to_string (t : t) =
-    match t with
-    | PosInf -> "PosInf"
-    | UB atom -> "UB " ^ (atom_to_string atom)
-    | InclusiveUB atom -> "UBInclusive " ^ (atom_to_string atom)
-    | Undef -> "Undef"
-
+  let of_offset k (v : int64) = Key.Map.singleton k v
+  let of_int64 v = of_offset Key.Zero v
 end
-module UB = UpperBound (* Abbreviation *)
 
+module UpperBound = KeyLattice(struct
+  let joinTwo _ = Widening.max
+  let meetTwo _ = Widening.min
+end) module UB = UpperBound
 
-module ArrayLengthLowerBound =
-struct
-  type t =
-    | PosInf
-    | ALB of int64
-    | Undef
-  let (bot, top) = (Undef, PosInf)
-  let join a b =
-    match (a, b) with
-    | (Undef, other) -> other
-    | (other, Undef) -> other
-    | (ALB aa, ALB bb) -> ALB (Widening.max aa bb)
-    | _ -> top
-  let meet a b =
-    match (a, b) with
-    | (PosInf, other) -> other
-    | (other, PosInf) -> other
-    | (ALB aa, ALB bb) -> ALB (Widening.min aa bb)
-    | _ -> bot
-  let to_string (t : t) =
-    match t with
-    | PosInf -> "+oo"
-    | ALB i -> "ArrayLB " ^ (Int64.to_string i)
-    | Undef -> "ArrayUndef"
-end
-module ALLB = ArrayLengthLowerBound
+module LowerBound = KeyLattice(struct
+  let joinTwo _ = Widening.min
+  let meetTwo _ = Widening.max
+end) module LB = LowerBound
 
 module ScalarConstraint =
 struct
-  type t = LB.t * UB.t (* Represents a half-open range *)
-  let bot = (LB.bot, UB.bot)
-  let top = (LB.NegInf, UB.PosInf)
-  let join (alb, aub) (blb, bub) = (LB.join alb blb, UB.join aub bub)
-  let meet (alb, aub) (blb, bub) = (LB.meet alb blb, UB.meet aub bub)
-  let leq a b = (join a b) = b
-  let of_int64 (i : int64) = (LB.LB i, UB.InclusiveUB (UB.IntAtom i))
+  type t = {lb: LB.t; ub: UB.t} (* Ranges are inclusive *)
+  let top = {lb = LB.top; ub = UB.top}
+  let join a b = {lb = LB.join a.lb b.lb, ub = UB.join a.ub b.ub}
+  let meet a b = {lb = LB.meet a.lb b.lb, ub = UB.meet a.ub b.ub}
+  let leq a b = (LB.leq a.lb b.lb && UB.leq a.ub b.ub)
+
+  let of_int64 (i : int64) = (LB.of_int64 i, UB.of_int64 i)
   let of_int32 i = of_int64 (Int64.of_int32 i)
   let of_nativeint i = of_int64 (Int64.of_nativeint i)
   let of_int i = of_int64 (Int64.of_int i)
-  let to_string (lb, ub) = "(" ^ (LB.to_string lb) ^ ", " ^ (UB.to_string ub) ^ ")"
-end
-module SC = ScalarConstraint
 
-let rec zipEq (l1, l2) =
+  let print ppf ((lbs, ubs) : t) : unit =
+    let print_entry k x y = (
+      pp_open_hbox ppf ();
+      pp_print_string ppf "(";
+      Key.print ppf k;
+      pp_print_string ppf " +";
+      pp_print_space ppf ();
+      pp_open_hbox ppf ();
+      pp_print_string ppf (match x with
+                          | Some x ->  ("[" ^ Int64.to_string x ^ ",")
+                          | None -> "(-oo,"
+                          )
+      pp_print_space ppf ();
+      pp_print_string ppf (match y with
+                          | Some y -> (Int64.to_string y ^ "]")
+                          | None -> "+oo)"
+                          )
+      pp_close_box ppf ();
+      pp_print_string ppf ")";
+      pp_close_box ppf ();
+      pp_print_space ppf ();
+      None (* We're using the merge function, so whatever *)
+    ) in (
+      pp_open_hvbox ppf 2;
+      pp_print_string ppf "ScalarConstraints{"
+      pp_print_space ppf ();
+      ignore (Key.Map.merge print_entry lbs ubs);
+      pp_print_cut ppf ();
+      pp_print_string ppf "}";
+      pp_close_box ppf ()
+    )
+end module SC = ScalarConstraint
+
+(* let rec zipEq (l1, l2) =
   match (l1, l2) with
   | (a :: l1', b :: l2') -> (a, b) :: (zipEq (l1', l2'))
   | ([], []) -> []
-  | _ -> raise (Impossible "Zip")
+  | _ -> raise (Impossible "Zip") *)
 
-(* TODO: Fix uses of add to join? *)
 module Lattice =
 struct
-  module VarMap =
-  struct
-    include Variable.Map
-    let addOption k v map =
-      match v with
-      | Some v -> add k v map
-      | None -> map
-    (* runs in time proportional to size of map2.
-     * Elements of map2 get added in case of conflict. *)
-    (* let mergeVarMaps map1 map2 =
-      let addFn key v lattice =
-        Variable.Map.add key v (Variable.Map.remove key lattice) in
-      Variable.Map.fold addFn map2 map1 *)
-  end
-  module SymMap =
-  struct
-    include Symbol.Map
-  end
-  (* Sinan: It's annoying that we can't enforce that the varInfo in the
-   * symMap is always a SymInfo on the type level. Since a variable can be
-   * bound to a symbol and read at a later time, we need to include SymInfo
-   * as a constructor for varInfo. *)
-  type t = (varInfo VarMap.t) * (varInfo SymMap.t)
+  module KeyMap = Key.Map
+  type 'a keyMap = 'a Key.Map.t
+  type t = varInfo keyMap
   and varInfo =
     | BoolInfo of boolConstraints
     | ScalarInfo of ScalarConstraint.t
-    | ArrayOfLength of ALLB.t
-    | NoInfo
-    | SymInfo of varInfo list
-    | SymbolField of Symbol.t * int
-    (* TODO: add free vars to lattice *)
-  and boolConstraints = { ifTrue: varInfo VarMap.t; ifFalse: varInfo VarMap.t; }
-  and tVarMap = varInfo VarMap.t
+    | ArrayOfLength of ScalarConstraint.t (* Jacob TODO-now: Collapse this w/ ScalarInfo? Might add logic errors to do so. *)
+    (*| NoInfo (* Jacob TODO-now: is this needed?? *)*)
+  and boolConstraints = { ifTrue: t; ifFalse: t; }
   (* boolConstraints is a Map from variable value to constraints *)
 
-  let bot = (VarMap.empty, SymMap.empty)
-  (* Top doesn't exist, we don't know what the universe of keys is *)
-  let rec bool_constraint_to_string {ifTrue; ifFalse} =
-    "{ ifTrue: " ^ (var_map_to_string ifTrue) ^ "\n ifFalse: " ^ (var_map_to_string ifFalse) ^ "}"
-  and var_info_to_string (vi : varInfo) =
-    match vi with
-    | BoolInfo bc -> "BoolInfo(" ^ (bool_constraint_to_string bc) ^ ")"
-    | ScalarInfo sc -> "ScalarInfo(" ^ (ScalarConstraint.to_string sc) ^ ")"
-    | ArrayOfLength sc -> "ArrayOfLength(" ^ (ALLB.to_string sc) ^ ")"
-    | NoInfo -> "NoInfo"
-    | SymInfo vis -> listToString "SymInfo" (List.map var_info_to_string vis)
-    | SymbolField (sym, idx) -> (Linkage_name.to_string (Symbol.label sym)) ^ ".(" ^ (string_of_int idx) ^ ")"
-  and var_map_to_string varMap =
-    let bindings = VarMap.bindings varMap in
-    let strFn (k, v) = ((Variable.unique_name k) ^ ": " ^ var_info_to_string v) ^ "\n" in
-    listToString "Variable bindings: " (List.map strFn bindings)
-  and to_string ((varMap, symMap) : t) =
-    let bindings = SymMap.bindings symMap in
-    let strFn (k, v) = ((Linkage_name.to_string (Symbol.label k))
-                        ^ ": " ^ var_info_to_string v) ^ "\n" in
-    let varDisplay = var_map_to_string varMap in
-    let symDisplay = listToString "\nSymbol bindings: " (List.map strFn bindings) in
-    varDisplay ^ symDisplay ^ "\n"
+  let bot = KeyMap.empty (* Initial value for analysis woohoo *)
+  (* Top is never used explicitly *)
+  let rec print ppf (lattice : t) : unit =
+    let print_entry k x = begin
+      pp_open_hvbox ppf 2;
+      pp_print_string ppf "(";
+      Key.print ppf k;
+      pp_print_string ppf ":";
+      pp_print_space ppf ();
+      (match x with
+      | BoolInfo boolInfo -> (
+          pp_open_hvbox ppf 2;
+          pp_print_string ppf "BoolInfo{";
+          pp_print_cut ppf ();
+          pp_print_string ppf "T->";
+          pp_print_break ppf 1 3;
+          print ppf boolInfo.ifTrue;
+          pp_print_space ppf ();
+          pp_print_string ppf "F->";
+          pp_print_break 1 3 ();
+          print ppf boolInfo.ifFalse;
+          pp_close_box();
+        )
+      | ScalarInfo sc -> SC.print ppf sc
+      | ArrayOfLength sc -> (pp_open_hbox ppf ();
+                             pp_print_string ppf "ArrayOfLength";
+                             pp_print_space ppf ();
+                             SC.print ppf sc;
+                             pp_close_box ppf ())
+      (* | NoInfo -> pp_print_string ppf "_|_" *)
+      );
+      pp_print_string ppf ")";
+      pp_close_box ppf ();
+      pp_print_cut ppf ()
+    end in
+    begin
+      pp_open_vbox ppf 2;
+      pp_print_string ppf "Lattice:{"
+      pp_print_space ppf ();
+      KeyMap.iter print_entry lattice;
+      pp_print_string ppf "}";
+      pp_close_box ppf ()
+    end
 
-  let rec join (a, aSym) (b, bSym) =
-    (joinVarMap a b, joinSymMap aSym bSym)
-  and joinSymMap a b =
+  let rec join a b =
     let f _ a b =
       match (a, b) with
       | (Some aa, Some bb) -> Some (joinVarInfo aa bb)
-      | (Some _, None) -> a
-      | (None, Some _) -> b
-      | (None, None) -> raise (Impossible "joinSymMap")
-    in SymMap.merge f a b
-  and joinVarMap a b =
-    let f _ a b =
-      match (a, b) with
-      | (Some aa, Some bb) -> Some (joinVarInfo aa bb)
-      | (Some _, None) -> a
-      | (None, Some _) -> b
-      | (None, None) -> raise (Impossible "joinVarMap")
-    in VarMap.merge f a b
+      | (Some _, None) -> a (* Remember that None -> _|_ *)
+      | (None, Some _) -> b (* and we want to join towards top *)
+      | (None, None) -> (* None *) raise (Impossible "Lattice.join.f")
+    in KeyMap.merge f a b
   and joinVarInfo a b =
-    match (a, b) with
+    match (a, b) with (*
     | (NoInfo, other) -> other
-    | (other, NoInfo) -> other
-    | (BoolInfo aa, BoolInfo bb) ->
-      BoolInfo {
-        ifTrue = joinVarMap aa.ifTrue bb.ifTrue;
-        ifFalse = joinVarMap aa.ifFalse bb.ifFalse;
-      }
-    | (ScalarInfo aa, ScalarInfo bb) ->
-      ScalarInfo (SC.join aa bb)
-    | (ArrayOfLength aa, ArrayOfLength bb) ->
-      ArrayOfLength (ALLB.join aa bb)
-    | (SymInfo a, SymInfo b) ->
-       SymInfo (List.map (fun (a, b) -> joinVarInfo a b) (zipEq (a, b)))
-    | (SymbolField (a, idxA), SymbolField (b, idxB)) ->
-       if a = b && idxA = idxB
-       then SymbolField (a, idxA)
-       else NoInfo
+    | (other, NoInfo) -> other*)
+    | (BoolInfo aa, BoolInfo bb) -> BoolInfo {
+                                      ifTrue = join aa.ifTrue bb.ifTrue;
+                                      ifFalse = join aa.ifFalse bb.ifFalse;
+                                    }
+    | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.join aa bb)
+    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (ALLB.join aa bb)
     | _ -> raise TypeMismatch
 
-  let rec meet (aVar, aSym) (bVar, bSym) =
+  let rec meet a =
     let f _ a b =
       match (a, b) with
       | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
-      | (Some _, None) -> a
-      | (None, Some _) -> b
-      | (None, None) -> raise (Impossible "Meet")
-    in (meetVarInfo aVar bVar, SymMap.merge f aSym bSym)
-  and meetVarMap a b =
-    let f _ a b =
-      match (a, b) with
-      | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
-      | (Some _, None) -> a
-      | (None, Some _) -> b
-      | (None, None) -> raise (Impossible "MeetVarMap")
-    in VarMap.merge f a b
+      | (Some _, None) -> None (* meet towards _|_ *)
+      | (None, Some _) -> None (* TODO: empirically verify this *)
+      | (None, None) -> raise (Impossible "Lattice.meet.f")
+    in KeyMap.merge f a b
   and meetVarInfo a b =
-    match (a, b) with
+    match (a, b) with (*
     | (NoInfo, _) -> NoInfo
-    | (_, NoInfo) -> NoInfo
-    | (BoolInfo aa, BoolInfo bb) ->
-      BoolInfo {
-        ifTrue = meetVarMap aa.ifTrue bb.ifTrue;
-        ifFalse = meetVarMap aa.ifFalse bb.ifFalse;
-      }
-    | (ScalarInfo aa, ScalarInfo bb) ->
-      ScalarInfo (SC.meet aa bb)
-    | (SymInfo a, SymInfo b) ->
-       SymInfo (List.map (fun (a, b) -> meetVarInfo a b) (zipEq (a, b)))
-    | (ArrayOfLength aa, ArrayOfLength bb) ->
-       ArrayOfLength (ALLB.meet aa bb)
-    | (SymbolField (a, idxA), SymbolField (b, idxB)) -> if a = b && idxA = idxB
-                                                        then SymbolField (a, idxA)
-                                                        else NoInfo
+    | (_, NoInfo) -> NoInfo *)
+    | (BoolInfo aa, BoolInfo bb) -> BoolInfo {
+                                      ifTrue = meet aa.ifTrue bb.ifTrue;
+                                      ifFalse = meet aa.ifFalse bb.ifFalse;
+                                    }
+    | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.meet aa bb)
+    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (ALLB.meet aa bb)
     | _ -> raise TypeMismatch
+
 
   (* TODO: this is not correct since we have Other = _|_ *)
   (* let leq a b = join a b = b *)
-
+(*
   let getSymOpt ((_, symLattice) : t) (sym : Symbol.t) =
     if SymMap.mem sym symLattice
     then Some (SymMap.find sym symLattice)
-    else None
-  let getVarOpt ((varLattice, _) : t) (var : Variable.t) =
+    else None *)
+  (* let getVarOpt ((varLattice, _) : t) (var : Variable.t) =
     if VarMap.mem var varLattice
     then Some (VarMap.find var varLattice)
-    else None
-  let getVar sigma x =
-    match getVarOpt sigma x with
-    | Some x -> x
-    | None -> NoInfo
-  let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap)
-  let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap)
+    else None *)
+  let getKey sigma k =
+    try Some (VarMap.find sigma k)
+    with Not_found -> None
 
-  let applyBoolInfo (varMap : tVarMap) (boolInfo : boolConstraints) : (tVarMap * tVarMap) =
-    let f _ c1 c2 =
-      match (c1, c2) with
-      | (Some c1, Some c2) -> Some (meetVarInfo c1 c2)
-      | (Some x, None) -> Some x
-      | (None, Some x) -> Some x
-      | (None, None) -> raise (Failure "Merging nothing?")
-    in (VarMap.merge f varMap boolInfo.ifTrue,
-        VarMap.merge f varMap boolInfo.ifFalse)
+  let getkey_exn sigma k = VarMap.find sigma k
+  (* let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap) *)
+  (* let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap) *)
+
+  let applyBoolInfo (sigma : t) (boolInfo : boolConstraints) : boolConstraints =
+    { ifTrue = meet sigma boolInfo.ifTrue;
+      ifFalse = meet sigma boolInfo.ifFalse;
+    }
 end
