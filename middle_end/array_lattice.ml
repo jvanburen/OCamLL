@@ -15,23 +15,25 @@
 (*                                                                        *)
 (**************************************************************************)
 
+(*
+  An issue with bool constraints containing non-constant variables
+  is if we have a program such as
+    b = x < y;
+    x = x + 1;
+    if x then ... else ...
+  Then our boolean information is invalidated,
+  so we can only keep immutable variables in the bool constraints.
+  TODO: implement this???
+*)
 exception Impossible of string
 exception TypeMismatch
 
 
 let listToString header (list : string list) = header ^ "[" ^ (String.concat ", " list) ^ "]"
-(* module type BOUNDED_SEMILATTICE =
-sig
-  type t
-  val bot : t
-  val top : t option
-  val join : t -> t -> t
-  val merge : t -> t -> t
-  val leq : t -> t -> bool
-  exception WeirdOp of t * t
-end *)
 
-(* TODO: implement widening operator *)
+
+(* TODO: implement widening operator
+   raise an exception maybe and handle it in meet/join?*)
 module Widening =
 struct
   let min x y = Pervasives.min x y
@@ -48,7 +50,9 @@ struct
 
   include Identifiable.Make (struct
     type nonrec t = t
-    let compare e1 e2 = match (e1, e2) with
+    let compare e1 e2 =
+      if e1 == e2 then 0
+      else match (e1, e2) with
         | (Zero, Zero) -> 0
         | (Zero, _) -> -1
         | (_, Zero) -> 1
@@ -144,6 +148,9 @@ struct
   let of_nativeint i = of_int64 (Int64.of_nativeint i)
   let of_int i = of_int64 (Int64.of_int i)
 
+  let of_upper_bound ub = {lb=LB.top; ub=ub}
+  let of_lower_bound lb = {lb=lb; ub=UB.top}
+
   let print ppf (sc : t) : unit =
     let open Format in
     let print_entry k x y = (
@@ -178,12 +185,6 @@ struct
     )
 end module SC = ScalarConstraint
 
-(* let rec zipEq (l1, l2) =
-  match (l1, l2) with
-  | (a :: l1', b :: l2') -> (a, b) :: (zipEq (l1', l2'))
-  | ([], []) -> []
-  | _ -> raise (Impossible "Zip") *)
-
 module Lattice =
 struct
   module KeyMap = Key.Map
@@ -193,7 +194,7 @@ struct
     | BoolInfo of boolConstraints
     | ScalarInfo of ScalarConstraint.t
     | ArrayOfLength of ScalarConstraint.t (* Jacob TODO-now: Collapse this w/ ScalarInfo? Might add logic errors to do so. *)
-    (*| NoInfo (* Jacob TODO-now: is this needed?? *)*)
+    | Anything (* Top, used when we can't analyze something at all *)
   and boolConstraints = { ifTrue: t; ifFalse: t; }
   (* boolConstraints is a Map from variable value to constraints *)
 
@@ -208,6 +209,7 @@ struct
       pp_print_string ppf ":";
       pp_print_space ppf ();
       (match x with
+      | Anything -> pp_print_string ppf "Top"
       | BoolInfo boolInfo -> (
           pp_open_hvbox ppf 2;
           pp_print_string ppf "BoolInfo{";
@@ -219,15 +221,13 @@ struct
           pp_print_string ppf "F->";
           pp_print_break ppf 1 3;
           print ppf boolInfo.ifFalse;
-          pp_close_box ppf ();
-        )
+          pp_close_box ppf () )
       | ScalarInfo sc -> SC.print ppf sc
       | ArrayOfLength sc -> (pp_open_hbox ppf ();
                              pp_print_string ppf "ArrayOfLength";
                              pp_print_space ppf ();
                              SC.print ppf sc;
-                             pp_close_box ppf ())
-      (* | NoInfo -> pp_print_string ppf "_|_" *)
+                             pp_close_box ppf () )
       );
       pp_print_string ppf ")";
       pp_close_box ppf ();
@@ -241,7 +241,6 @@ struct
       pp_close_box ppf () )
     end
 
-
   let rec join a b =
     let f _ a b =
       match (a, b) with
@@ -251,9 +250,9 @@ struct
       | (None, None) -> (* None *) raise (Impossible "Lattice.join.f")
     in KeyMap.merge f a b
   and joinVarInfo a b =
-    match (a, b) with (*
-    | (NoInfo, other) -> other
-    | (other, NoInfo) -> other*)
+    match (a, b) with
+    | (Anything, _) -> Anything
+    | (_, Anything) -> Anything
     | (BoolInfo aa, BoolInfo bb) -> BoolInfo {
                                       ifTrue = join aa.ifTrue bb.ifTrue;
                                       ifFalse = join aa.ifFalse bb.ifFalse;
@@ -268,12 +267,12 @@ struct
       | (Some aa, Some bb) -> Some (meetVarInfo aa bb)
       | (Some _, None) -> None (* meet towards _|_ *)
       | (None, Some _) -> None (* TODO: empirically verify this *)
-      | (None, None) -> raise (Impossible "Lattice.meet.f")
+      | (None, None) -> (* None *) raise (Impossible "Lattice.meet.f")
     in KeyMap.merge f a b
   and meetVarInfo a b =
-    match (a, b) with (*
-    | (NoInfo, _) -> NoInfo
-    | (_, NoInfo) -> NoInfo *)
+    match (a, b) with
+    | (Anything, other) -> other
+    | (other, Anything) -> other
     | (BoolInfo aa, BoolInfo bb) -> BoolInfo {
                                       ifTrue = meet aa.ifTrue bb.ifTrue;
                                       ifFalse = meet aa.ifFalse bb.ifFalse;
@@ -294,7 +293,23 @@ struct
   (* let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap) *)
 
   let applyBoolInfo (sigma : t) (boolInfo : boolConstraints) : boolConstraints =
-    { ifTrue = meet sigma boolInfo.ifTrue;
-      ifFalse = meet sigma boolInfo.ifFalse;
+    { ifTrue = KeyMap.union_merge meetVarInfo sigma boolInfo.ifTrue;
+      ifFalse = KeyMap.union_merge meetVarInfo sigma boolInfo.ifFalse;
     }
 end
+
+(* Don't know how to implement this yet.
+   This is a simple abstract interface allowing me to fix up array_optis
+   before we deal with it *)
+module ProgramLattices =
+struct
+  type t = Lattice.t
+  let initial = Lattice.bot
+  let updateOut (_ : t)
+                (_ : Flambda.t)
+                ((lat , vi) : Lattice.t * Lattice.varInfo)  = (lat, vi)
+  let updateOutNamed (_ : t)
+                     (_ : Flambda.named)
+                     ((lat , vi) : Lattice.t * Lattice.varInfo) = (lat, vi)
+  (* Idea: let statements could be identified by the variable they define *)
+end module LL = ProgramLattices
