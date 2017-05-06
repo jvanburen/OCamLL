@@ -38,29 +38,102 @@ struct
   let max x y = Pervasives.max x y
 end
 
+(* Lattice Keys (symbol fields or variables) *)
+module Key =
+struct
+  type t =
+    | Var of Variable.t
+    | SymField of Symbol.t * int
+    | Zero  (* This is for constants *)
+
+  include Identifiable.Make (struct
+    type nonrec t = t
+    let compare e1 e2 = match (e1, e2) with
+        | (Zero, Zero) -> 0
+        | (Zero, _) -> -1
+        | (_, Zero) -> 1
+        | (Var x, Var y) -> Variable.compare x y
+        | (Var _, _) -> -1
+        | (_, Var_ ) -> 1
+        | (SymField (e1, i1), SymField (e2, i2)) ->
+          if i1 = i2
+            then Symbol.compare x y
+            else Int.compare i1 i2
+
+    let equal x y = (x == y) || (compare x y = 0)
+    let output chan t = match t with
+      | Var v -> Variable.output chan v
+      | SymField (sym, i) ->
+          (Symbol.output sym; output_string chan (string_of_int i))
+      | Zero -> output_string chan "Zero"
+    let hash t = match t with
+      | Var v -> v.hash
+      | SymField (sym, _) -> sym.hash
+      | Zero -> 0
+    let print ppf t = match t with
+      | Var v -> Variable.print ppf v
+      | Zero -> Format.pp_print_string ppf "Zero"
+      | SymField (sym, i) -> (
+          Symbol.print ppf sym;
+          Format.pp_print_string ppf ("(" ^ string_of_int i ^ ")");
+        )
+  end)
+
+  let of_sym (sym, i) = Sym sym i
+  let of_var var = Var var
+end
+module K = Key
+
+module LowerBound =
+struct
+  type t =
+    | NegInf (* Top *)
+    | LB of int64
+    | Undef  (* Bot *)
+  let (bot, top) = (Undef, NegInf)
+
+  let join a b =
+    match (a, b) with
+    | (Undef, other) -> other
+    | (other, Undef) -> other
+    | (LB aa, LB bb) -> LB (Widening.min aa bb)
+    | _ -> top
+  let meet a b =
+    match (a, b) with
+    | (NegInf, other) -> other
+    | (other, NegInf) -> other
+    | (LB aa, LB bb) -> LB (Widening.max aa bb)
+    | _ -> bot
+  let zero = LB Int64.zero
+  let leq a b = (join a b) = b
+  let to_string (t : t) =
+    match t with
+    | NegInf -> "NegInf"
+    | LB i -> "LB " ^ (Int64.to_string i)
+    | Undef -> "Undef"
+end
+module LB = LowerBound (* Abbreviation *)
+
+(* module Atom =
+struct
+  type t =
+    | Int of int64
+    | LenOf of Key.t (* Must be free in the AST *)
+end *)
+
 module UpperBound =
 struct
-  type atom =
-    | IntAtom of int64
-    | LenAtom of Variable.t (* Must be free in the program *)
-    | LenSymAtom of (Symbol.t * int) (* Symbol must be free in the program *)
-  type t =
-    | PosInf
-    | UB of atom
-    | InclusiveUB of atom
-    | Undef
-  let (bot, top) = (Undef, PosInf)
+  (* We keep a map of multiple upper bounds
+  k -> v means we're bounded above by k + v
+  if a key is not in the map it's equivalent to k -> +oo.
+  Hence Top for this lattice is the empty map, i.e., we're bounded above by nothing
+  We don't have an explicit _|_ because this will be a value in a map,
+      where the absence of a value is a _|_
+  *)
+  type t = int64 Key.Map.t (* offsets *)
 
-  (* Don't use this externally... not sure how to hide, there's no `local` kw *)
-  let atomOp oper s k a b =
-    match (a, b) with
-    | (IntAtom x, IntAtom y) -> s (IntAtom (oper x y)) (* TODO: add widening operator *)
-    | (LenAtom x, LenAtom y) -> if x = y then s a else k ()
-    | (LenSymAtom x, LenSymAtom y) -> if x = y then s a else k ()
-    (* | (VarAtom x, VarAtom y) -> if x = y then s a else k () *)
-    | _ -> k ()
 
-  (* TODO-someday: handle join/merge for inclusiveUB and UB *)
+  (* Move higher in the lattice (towards Top) *)
   let join a b =
     match (a, b) with
     | (Undef, other) -> other
@@ -91,38 +164,10 @@ struct
     | UB atom -> "UB " ^ (atom_to_string atom)
     | InclusiveUB atom -> "UBInclusive " ^ (atom_to_string atom)
     | Undef -> "Undef"
+
 end
 module UB = UpperBound (* Abbreviation *)
 
-module LowerBound =
-struct
-  type t =
-    | NegInf
-    | LB of int64
-    | Undef
-  let (bot, top) = (Undef, NegInf)
-
-  let join a b =
-    match (a, b) with
-    | (Undef, other) -> other
-    | (other, Undef) -> other
-    | (LB aa, LB bb) -> LB (Widening.min aa bb)
-    | _ -> top
-  let meet a b =
-    match (a, b) with
-    | (NegInf, other) -> other
-    | (other, NegInf) -> other
-    | (LB aa, LB bb) -> LB (Widening.max aa bb)
-    | _ -> bot
-  let zero = LB Int64.zero
-  let leq a b = (join a b) = b
-  let to_string (t : t) =
-    match t with
-    | NegInf -> "NegInf"
-    | LB i -> "LB " ^ (Int64.to_string i)
-    | Undef -> "Undef"
-end
-module LB = LowerBound (* Abbreviation *)
 
 module ArrayLengthLowerBound =
 struct
@@ -311,7 +356,7 @@ struct
     | _ -> raise TypeMismatch
 
   (* TODO: this is not correct since we have Other = _|_ *)
-  let leq a b = join a b = b
+  (* let leq a b = join a b = b *)
 
   let getSymOpt ((_, symLattice) : t) (sym : Symbol.t) =
     if SymMap.mem sym symLattice
@@ -337,5 +382,4 @@ struct
       | (None, None) -> raise (Failure "Merging nothing?")
     in (VarMap.merge f varMap boolInfo.ifTrue,
         VarMap.merge f varMap boolInfo.ifFalse)
-
 end
