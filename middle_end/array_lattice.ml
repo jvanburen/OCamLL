@@ -327,8 +327,12 @@ struct
     | None -> Anything
 
 
-  let updateVar var info sigma = KeyMap.add (Key.of_var var) info sigma
-  let updateSymField sym field info sigma = KeyMap.add (Key.of_sym (sym, field)) info sigma
+  let updateVar var info sigma =
+    let key = Key.of_var var in
+    KeyMap.add key info (KeyMap.remove key sigma)
+  let updateSymField sym field info sigma =
+    let key = Key.of_sym (sym, field) in
+    KeyMap.add key info (KeyMap.remove key sigma)
   let singleton key info : t = KeyMap.singleton key info
   let of_list l : t = KeyMap.of_list l
 
