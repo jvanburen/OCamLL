@@ -125,12 +125,12 @@ struct
       | (other, None) -> other
     in Key.Map.merge f a b
   let leq a b = (join a b) = b (* TODO-someday: make this more efficient *)
-  let plus_constant (c : int64) (lat : t) : t = Key.Map.map (fun x -> x + c) lat
+  let plus_constant (c : int64) (lat : t) : t = Key.Map.map (Int64.add c) lat
 
-  let of_offset k (v : int64) = Key.Map.singleton k v
-  let of_key k = Key.Map.singleton k 0
-  let of_int64 v = of_offset Key.Zero v
-
+  let of_offset k v : t = Key.Map.singleton k v
+  let of_key k : t = Key.Map.singleton k Int64.zero
+  let of_int64 v : t = of_offset Key.Zero v
+  let of_var v : t = of_key (Key.of_var v)
 end
 
 module UpperBound = KeyLattice(struct
@@ -143,9 +143,10 @@ module LowerBound = KeyLattice(struct
   let meetOffsets _ x y = Some (Widening.max x y)
 end) module LB = LowerBound
 
+type scalarConstraint = {lb: LB.t; ub: UB.t} (* Ranges are inclusive *)
 module ScalarConstraint =
 struct
-  type t = {lb: LB.t; ub: UB.t} (* Ranges are inclusive *)
+  type t = scalarConstraint
   let top = {lb = LB.top; ub = UB.top}
   let join a b = {lb = LB.join a.lb b.lb; ub = UB.join a.ub b.ub}
   let meet a b = {lb = LB.meet a.lb b.lb; ub = UB.meet a.ub b.ub}
@@ -155,15 +156,16 @@ struct
     {lb = LB.plus_constant c sc.lb;
      ub = UB.plus_constant c sc.ub}
 
-  let of_int64 (i : int64) = (LB.of_int64 i, UB.of_int64 i)
-  let of_int32 i = of_int64 (Int64.of_int32 i)
-  let of_nativeint i = of_int64 (Int64.of_nativeint i)
-  let of_int i = of_int64 (Int64.of_int i)
-  let of_key i = (LB.of_var i, UB.of_var i)
+  let of_int64 (i : int64) : t = {lb = LB.of_int64 i; ub = UB.of_int64 i}
+  let of_int32 i : t = of_int64 (Int64.of_int32 i)
+  let of_nativeint i : t = of_int64 (Int64.of_nativeint i)
+  let of_int i : t = of_int64 (Int64.of_int i)
+  let of_key k : t = {lb = LB.of_key k; ub = UB.of_key k}
+  let of_var v : t = of_key (Key.of_var v)
 
-  let of_upper_bound ub = {lb=LB.top; ub=ub}
-  let of_lower_bound lb = {lb=lb; ub=UB.top}
-  let nonnegative = of_lower_bound (LB.of_int64 0)
+  let of_upper_bound ub : t = {lb=LB.top; ub=ub}
+  let of_lower_bound lb : t = {lb=lb; ub=UB.top}
+  let nonnegative : t = of_lower_bound (LB.of_int64 Int64.zero)
 
   let print ppf (sc : t) : unit =
     let open Format in
@@ -199,18 +201,21 @@ struct
     )
 end module SC = ScalarConstraint
 
+type 'a keyMap = 'a Key.Map.t
+type lattice = latticeVarInfo keyMap
+and latticeVarInfo =
+  | BoolInfo of boolConstraints
+  | ScalarInfo of ScalarConstraint.t
+  | ArrayOfLength of ScalarConstraint.t (* Jacob TODO-now: Collapse this w/ ScalarInfo? Might add logic errors to do so. *)
+  | Anything (* Top, used when we can't analyze something at all *)
+and boolConstraints = { ifTrue: lattice; ifFalse: lattice; }
+(* boolConstraints is a Map from variable value to constraints *)
+
 module Lattice =
 struct
   module KeyMap = Key.Map
-  type 'a keyMap = 'a Key.Map.t
-  type t = varInfo keyMap
-  and varInfo =
-    | BoolInfo of boolConstraints
-    | ScalarInfo of ScalarConstraint.t
-    | ArrayOfLength of ScalarConstraint.t (* Jacob TODO-now: Collapse this w/ ScalarInfo? Might add logic errors to do so. *)
-    | Anything (* Top, used when we can't analyze something at all *)
-  and boolConstraints = { ifTrue: t; ifFalse: t; }
-  (* boolConstraints is a Map from variable value to constraints *)
+  type t = lattice
+  type varInfo = latticeVarInfo
 
   let bot = KeyMap.empty (* Initial value for analysis woohoo *)
   (* Top is never used explicitly *)
@@ -298,25 +303,27 @@ struct
 
   (* TODO: leq is not correct since we have Other = _|_ *)
   (* let leq a b = join a b = b *)
-  let getKey sigma k =
-    try Some (KeyMap.find sigma k)
+
+  let getKey_exn k sigma = KeyMap.find k sigma
+
+  let getKey_opt k sigma =
+    try Some (getKey_exn k sigma)
     with Not_found -> None
 
-  let getVar_top sigma v =
-    match getKey sigma (K.of_var v) with
+  let getVar_top v sigma =
+    match getKey_opt (K.of_var v) sigma with
     | Some x -> x
     | None -> Anything
 
-  let getSymField_top sigma sym i =
-    match getKey sigma (K.of_sym (sym, i)) with
+  let getSymField_top sym sigma =
+    match getKey_opt (K.of_sym sym) sigma with
     | Some x -> x
     | None -> Anything
 
-  let getKey_exn sigma k = KeyMap.find sigma k
 
   let updateVar var info sigma = KeyMap.add (Key.of_var var) info sigma
-  (* let addVarInfo var info (varMap, symMap) = (VarMap.add var info varMap, symMap) *)
-  (* let addSymInfo sym info (varMap, symMap) = (varMap, SymMap.add sym info symMap) *)
+  let singleton key info : t = KeyMap.singleton key info
+  let of_list l : t = KeyMap.of_list l
 
   let applyBoolInfo (sigma : t) (boolInfo : boolConstraints) : boolConstraints =
     { ifTrue = KeyMap.union_merge meetVarInfo sigma boolInfo.ifTrue;
@@ -329,8 +336,6 @@ struct
     in
       Variable.Set.fold addvar vars sigma
 
-
-
 end
 module L = Lattice
 
@@ -339,7 +344,7 @@ module L = Lattice
    before we deal with it *)
 module ProgramLattices =
 struct
-  type t = unit
+  type t = private unit
   let initial = ()
   let updateOut (_ : t)
                 (_ : Flambda.t)
