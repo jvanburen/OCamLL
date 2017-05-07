@@ -43,9 +43,9 @@ else
   echo "$0: Reconfiguring done" 1>&2
 fi
 
-if [ COMPILED_WORLD = no ]
+if [ $COMPILED_WORLD = no ]
 then
-  echo "$0: Recompiling world" 1>&2
+  echo "$0: Recompiling world..." 1>&2
   make world --quiet
   echo $WORLD_FLAG >> $CONFIG_FILE
 fi
@@ -53,7 +53,7 @@ fi
 # using -j n makes this FAIL (not our fault)
 make opt --quiet
 
-if [[ CONFIGURED = no || ${1:-noinstall} = "install" ]]
+if [[ $CONFIGURED = no || $COMPILED_WORLD = no || ${1:-noinstall} = "install" ]]
 then
   mkdir -p "install"
   make install --quiet

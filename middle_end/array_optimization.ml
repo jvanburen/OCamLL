@@ -16,7 +16,7 @@
 let pass_name = "optimize-array-accesses"
 let () = Pass_wrapper.register ~pass_name:pass_name
 
-open Array_optimizations
+open Array_analysis
 open Array_lattice
 let x : Lattice.t = Lattice.bot
 
