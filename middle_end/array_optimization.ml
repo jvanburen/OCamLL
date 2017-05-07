@@ -119,6 +119,7 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
   let iter_set_of_closures {Flambda.function_decls} =
     Variable.Map.map (fun (fdecl: Flambda.function_declaration) ->
         let body = fdecl.Flambda.body in
+        latticeRef := Lattice.addFreeVars (fdecl.Flambda.free_variables) (!latticeRef);
         analyze_and_ignore body) (function_decls.Flambda.funs) in
   let iter_constant_defining_value (sym, constant_defining_value) =
     match constant_defining_value with
