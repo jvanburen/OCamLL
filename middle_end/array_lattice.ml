@@ -22,8 +22,14 @@
     x = x + 1;
     if x then ... else ...
   Then our boolean information is invalidated,
-  so we can only keep immutable variables in the bool constraints.
-  TODO: implement this???
+  so we can only keep immutable information in the bool constraints.
+
+  A SOLUTION: when considering a expression of x < y, look up
+  x' = sigma(x) and y' = sigma(y). The values in the lattice are constant and
+  safe to propagate across assignment statements.
+  This requires more complicated logic to deduce facts rather than just taking
+  the meet of corresponding ranges, but that seems like a small price to pay
+  for respecting mutables.
 *)
 exception Impossible of string
 exception TypeMismatch
@@ -325,10 +331,17 @@ struct
   let singleton key info : t = KeyMap.singleton key info
   let of_list l : t = KeyMap.of_list l
 
-  let applyBoolInfo (sigma : t) (boolInfo : boolConstraints) : boolConstraints =
+  let applyBoolInfo (boolInfo : boolConstraints) (sigma : t) : boolConstraints =
     { ifTrue = KeyMap.union_merge meetVarInfo sigma boolInfo.ifTrue;
       ifFalse = KeyMap.union_merge meetVarInfo sigma boolInfo.ifFalse;
     }
+  let computeBoolInfo (k : Key.t) (sigma : t) : boolConstraints =
+    match getKey_opt k sigma with
+    | Some (BoolInfo boolInfo) ->
+        { ifTrue = KeyMap.union_merge meetVarInfo sigma boolInfo.ifTrue;
+          ifFalse = KeyMap.union_merge meetVarInfo sigma boolInfo.ifFalse;
+        }
+    | _ -> { ifTrue = sigma; ifFalse = sigma; }
 
   let addFreeVars (vars : Variable.Set.t) (sigma : t) : t =
     let addvar var s =

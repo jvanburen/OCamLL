@@ -31,6 +31,9 @@ let x : Lattice.t = Lattice.bot
   TODO: array accesses in for-loops: should we be hoisting out a bounds check?
 
   TODO: add free variables lattice before looking into functions
+
+  TODO-Someday: check for physical equality before creating a new node
+      (important GC speed optimization)
 *)
 
 let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
@@ -46,14 +49,9 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
   | Flambda.Send _ -> expr
   | Flambda.Assign _ -> expr
   | Flambda.If_then_else (v, thenB, elseB) ->
-     let (varInfo, symInfo) = lattice in
-     let (latticeT, latticeF) =
-       (match Lattice.getVarOpt lattice v with
-        | Some (Lattice.BoolInfo boolInfo) ->
-          Lattice.applyBoolInfo varInfo boolInfo
-        | _ -> (varInfo, varInfo)) in
-     Flambda.If_then_else (v, optimize_array (latticeT, symInfo) thenB,
-                           optimize_array (latticeF, symInfo) elseB)
+     let sigmaTF = Lattice.computeBoolInfo (Key.of_var v) lattice in
+     Flambda.If_then_else (v, optimize_array sigmaTF.ifTrue thenB,
+                              optimize_array sigmaTF.ifFalse elseB)
   | Flambda.Switch _ -> expr
   | Flambda.String_switch _ -> expr
   | Flambda.Static_raise _ -> expr
