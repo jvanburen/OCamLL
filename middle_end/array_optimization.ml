@@ -66,17 +66,18 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
                  Flambda.to_value; Flambda.direction;
                  Flambda.body} ->
      let createConstraint low hi =
-       match (Lattice.getVarOpt lattice low, Lattice.getVarOpt lattice hi) with
-       | (Some (Lattice.ScalarInfo (lbLow, _)),
-          Some (Lattice.ScalarInfo (_, ubHi))) ->
-          Lattice.ScalarInfo (lbLow, ubHi)
-       | _ -> Lattice.NoInfo
+       match (Lattice.getKey_opt (Key.of_var low) lattice,
+              Lattice.getKey_opt (Key.of_var hi) lattice) with
+       | (Some (ScalarInfo {lb=lbLow;}),
+          Some (ScalarInfo {ub=ubHi;})) ->
+          ScalarInfo {lb=lbLow; ub=ubHi}
+       | _ -> Anything
      in
      let bound_info = (match direction with
                       | Asttypes.Downto -> createConstraint to_value from_value
                       | Asttypes.Upto -> createConstraint from_value to_value)
      in
-     let lattice = Lattice.addVarInfo bound_var bound_info lattice in
+     let lattice = Lattice.updateVar bound_var bound_info lattice in
      Flambda.For {bound_var; from_value; to_value; direction;
                   Flambda.body = optimize_array lattice body}
   | Flambda.Proved_unreachable -> expr
@@ -105,12 +106,13 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
 (* Oh no, globals! *)
 let latticeRef = ref Lattice.bot
 let analyze_and_ignore (expr : Flambda.t) : Lattice.varInfo =
-  let (lattice, varInfo) = try (add_constraints (!latticeRef) expr) with
+  let (lattice, varInfo) = try (add_constraints LL.initial (!latticeRef) expr) with
                      | ex -> let () = print_string ("Got an exception\n" ^ Printexc.to_string ex) in
-                             (!latticeRef, Lattice.NoInfo)
+                             (!latticeRef, Anything)
   in
   let _ = latticeRef := lattice in
-  let _ = print_string ("Lattice is: " ^ (Lattice.to_string lattice) ^ "\n") in
+  let _ = print_string "Lattice is:\n" in
+  Lattice.print Format.std_formatter lattice;
   varInfo
 
 let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
@@ -124,27 +126,25 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
        let _ = iter_set_of_closures set_of_closures in ()
     | Flambda.Block (_, constant_defining_fields) ->
      let handle_field idx field =
-       match field with
-       | Flambda.Symbol s ->
-          (match Lattice.getSymOpt (!latticeRef) s with
-           | Some info -> info
-           | None -> Lattice.SymbolField (s, idx))
-       | Flambda.Const const ->
-          (match const with
-           | Flambda.Int i -> Lattice.ScalarInfo (SC.of_int i)
-           | Flambda.Char _ -> Lattice.NoInfo
-           | Flambda.Const_pointer _ -> Lattice.NoInfo) in
-     let defnList = List.mapi handle_field constant_defining_fields in
-     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo defnList) (!latticeRef)
+       let info = 
+         (match field with
+          | Flambda.Symbol s -> Lattice.getSymField_top (s, idx) (!latticeRef)
+          | Flambda.Const const ->
+             (match const with
+              | Flambda.Int i -> ScalarInfo (SC.of_int i)
+              | Flambda.Char _ -> Anything
+              | Flambda.Const_pointer _ -> Anything)) in
+       latticeRef := Lattice.updateSymField sym idx info (!latticeRef) in
+     List.iteri handle_field constant_defining_fields
     | Flambda.Allocated_const ac ->
      let info = (match ac with
-                 | Allocated_const.Int32 i -> Lattice.ScalarInfo (SC.of_int32 i)
-                 | Allocated_const.Int64 i -> Lattice.ScalarInfo (SC.of_int64 i)
-                 | Allocated_const.Nativeint ni -> Lattice.ScalarInfo (SC.of_nativeint ni)
-                 | _ -> Lattice.NoInfo) in
-     latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [info]) (!latticeRef)
+                 | Allocated_const.Int32 i -> ScalarInfo (SC.of_int32 i)
+                 | Allocated_const.Int64 i -> ScalarInfo (SC.of_int64 i)
+                 | Allocated_const.Nativeint ni -> ScalarInfo (SC.of_nativeint ni)
+                 | _ -> Anything) in
+     latticeRef := Lattice.updateSymField sym 0 info (!latticeRef)
     | Flambda.Project_closure _ ->
-       latticeRef := Lattice.addSymInfo sym (Lattice.SymInfo [Lattice.NoInfo]) (!latticeRef) in
+       latticeRef := Lattice.updateSymField sym 0 Anything (!latticeRef) in
   let rec iter_program_body (program : Flambda.program_body) =
   match program with
   | Flambda.Let_symbol (_, Flambda.Set_of_closures set_of_closures, program') ->
@@ -159,7 +159,9 @@ let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
      iter_program_body program'
   | Flambda.Initialize_symbol (symbol, _, fields, program') ->
      let varInfos = List.map analyze_and_ignore fields in
-     latticeRef := (Lattice.addSymInfo symbol (Lattice.SymInfo varInfos) (!latticeRef));
+     let addField idx info =
+       latticeRef := (Lattice.updateSymField symbol idx info (!latticeRef)) in
+     List.iteri addField varInfos;
      iter_program_body program'
   | Flambda.Effect (expr, program') ->
      let _ = analyze_and_ignore expr in

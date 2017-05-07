@@ -328,6 +328,7 @@ struct
 
 
   let updateVar var info sigma = KeyMap.add (Key.of_var var) info sigma
+  let updateSymField sym field info sigma = KeyMap.add (Key.of_sym (sym, field)) info sigma
   let singleton key info : t = KeyMap.singleton key info
   let of_list l : t = KeyMap.of_list l
 
@@ -357,7 +358,7 @@ module L = Lattice
    before we deal with it *)
 module ProgramLattices =
 struct
-  type t = private unit
+  type t = unit
   let initial = ()
   let updateOut (_ : t)
                 (_ : Flambda.t)
