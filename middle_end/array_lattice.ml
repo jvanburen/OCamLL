@@ -363,32 +363,25 @@ struct
     in
     KeyMap.merge mergeRight first second *)
 
-  let addRangeToSC ((lb, ub): int64 option * int64 option)
-                        (sc : SC.t) : SC.t =
-    (* add upper bound and lower bound, then join *)
-    (* let rec addRange (varInfo : varInfo) : varInfo =
-      match varInfo with
-      | ScalarInfo sc -> ScalarInfo (SC.join (SC.plus_constant ub sc) (SC.plus_constant lb sc))
-      | ArrayOfLength sc -> ScalarInfo (SC.join (SC.plus_constant ub sc) (SC.plus_constant lb sc))
-      | BoolInfo bi -> BoolInfo (fmapBoolConstraints (KeyMap.map addRange) bi)
-      | Anything -> Anything
-    in *)
-    {lb=(match lb with
-        | Some lb -> LB.plus_constant lb sc.lb
-        | None -> LB.top);
-     ub=(match ub with
-        | Some ub -> UB.plus_constant ub sc.ub
-        | None -> UB.top)
-    }
-
   let computeClosure (sigma : t) : t =
+    let addReverseRangeToSC ((lb, ub): int64 option * int64 option)
+                        (sc : SC.t) : SC.t =
+      (* adds, then join. yes, we're intentionally flipping lb and ub *)
+      {lb=(match ub with
+          | Some ub -> LB.plus_constant (Int64.neg ub) sc.lb
+          | None -> LB.top);
+       ub=(match lb with
+          | Some lb -> UB.plus_constant (Int64.neg lb) sc.ub
+          | None -> UB.top)
+      }
+    in
     let getSCLattice (sc : SC.t) : t =
       (* Takes a key -> SC mapping and turns it into a lattice of additional constraints *)
       (* it promotes a scalarconstraint to a lattice *)
       let f x lb ub =
         (* turns a single constraint x -> [xlo, xhi] into a scalarconstraint *)
         if x = Key.Zero then None
-        else Some (ScalarInfo (addRangeToSC (lb, ub) sc))
+        else Some (ScalarInfo (addReverseRangeToSC (lb, ub) sc))
       in
       KeyMap.merge f sc.lb sc.ub
     in
