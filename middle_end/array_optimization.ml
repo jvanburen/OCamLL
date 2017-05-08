@@ -36,7 +36,7 @@ let x : Lattice.t = Lattice.bot
       (important GC speed optimization)
 *)
 
-let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
+let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) : Flambda.t =
   match expr with
   | Flambda.Var _ -> expr
   | Flambda.Let {Flambda.var; Flambda.defining_expr; Flambda.body} ->
@@ -81,7 +81,8 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) =
      Flambda.For {bound_var; from_value; to_value; direction;
                   Flambda.body = optimize_array lattice body}
   | Flambda.Proved_unreachable -> expr
-and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
+
+and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
   match named with
   | Flambda.Symbol _ -> named
   | Flambda.Const _ -> named
@@ -103,76 +104,89 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) =
         let _ = print_string ((string_of_int (List.length vars)) ^ " " ^ (listToString "" (List.map Variable.unique_name vars)) ^"\n") in
         Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
      | _ -> named)
+)
 (* Oh no, globals! *)
-let latticeRef = ref Lattice.bot
-let analyze_and_ignore (expr : Flambda.t) : Lattice.varInfo =
-  let (lattice, varInfo) = try (add_constraints LL.initial (!latticeRef) expr) with
-                     | ex -> let () = print_string ("Got an exception\n" ^ Printexc.to_string ex) in
-                             (!latticeRef, Anything)
-  in
-  let _ = latticeRef := lattice in
-  let _ = print_string "Lattice is:\n" in
-  Lattice.print Format.std_formatter lattice;
-  varInfo
+(* let latticeRef = ref Lattice.bot *)
 
-let analyze_toplevel_of_program ({Flambda.program_body} : Flambda.program) =
-  let iter_set_of_closures {Flambda.function_decls} =
-    Variable.Map.map (fun (fdecl: Flambda.function_declaration) ->
-        let body = fdecl.Flambda.body in
-        latticeRef := Lattice.addFreeVars (fdecl.Flambda.free_variables) (!latticeRef);
-        analyze_and_ignore body) (function_decls.Flambda.funs) in
-  let iter_constant_defining_value (sym, constant_defining_value) =
+let analyze_expr (expr : Flambda.t) (sigma : Lattice.t) : (Lattice.t * Lattice.varInfo) = (
+  let tup = try add_constraints expr sigma
+            with ex ->
+              (print_string ("Got an exception\n" ^ Printexc.to_string ex);
+               Format.print_newline();
+               (sigma, Anything)) in
+  (print_string "Lattice is:";
+  Lattice.print Format.std_formatter sigma;
+  Format.print_newline ();
+  tup)
+)
+
+let rec analyze_program_body (program_body : Flambda.program_body)
+                             (sigmaTL : Lattice.t) : Lattice.t =
+  let analyze_closure_entry (_ : Variable.t)
+                            (fdecl : Flambda.function_declaration)
+                            (sigma : Lattice.t) : Lattice.t = (
+    let sigma2 = Lattice.addFreeVars (fdecl.Flambda.free_variables) sigma in
+    let (sigma3, _) = analyze_expr fdecl.Flambda.body sigma2 in
+    sigma3
+  )in
+  let analyze_set_of_closures {Flambda.function_decls}
+                              (sigma : Lattice.t) : Lattice.t =
+    Variable.Map.fold analyze_closure_entry function_decls.Flambda.funs sigma
+  in
+  let analyze_block_field sym (field, idx) sigma_acc : Lattice.t =
+    let info = match field with
+               | Flambda.Symbol s -> Lattice.getSymField_top (s, idx) sigma_acc
+               | Flambda.Const const ->
+                  (match const with
+                   | Flambda.Int i -> ScalarInfo (SC.of_int i)
+                   | Flambda.Char _ -> Anything
+                   | Flambda.Const_pointer _ -> Anything) in
+    Lattice.updateSymField sym idx info sigma_acc
+  in
+  let analyze_const_def_val (sym, constant_defining_value)
+                                      (sigma : Lattice.t) : Lattice.t =
     match constant_defining_value with
     | Flambda.Set_of_closures set_of_closures ->
-       let _ = iter_set_of_closures set_of_closures in ()
+        analyze_set_of_closures set_of_closures sigma
     | Flambda.Block (_, constant_defining_fields) ->
-     let handle_field idx field =
-       let info = 
-         (match field with
-          | Flambda.Symbol s -> Lattice.getSymField_top (s, idx) (!latticeRef)
-          | Flambda.Const const ->
-             (match const with
-              | Flambda.Int i -> ScalarInfo (SC.of_int i)
-              | Flambda.Char _ -> Anything
-              | Flambda.Const_pointer _ -> Anything)) in
-       latticeRef := Lattice.updateSymField sym idx info (!latticeRef) in
-     List.iteri handle_field constant_defining_fields
-    | Flambda.Allocated_const ac ->
-     let info = (match ac with
-                 | Allocated_const.Int32 i -> ScalarInfo (SC.of_int32 i)
-                 | Allocated_const.Int64 i -> ScalarInfo (SC.of_int64 i)
-                 | Allocated_const.Nativeint ni -> ScalarInfo (SC.of_nativeint ni)
-                 | _ -> Anything) in
-     latticeRef := Lattice.updateSymField sym 0 info (!latticeRef)
-    | Flambda.Project_closure _ ->
-       latticeRef := Lattice.updateSymField sym 0 Anything (!latticeRef) in
-  let rec iter_program_body (program : Flambda.program_body) =
-  match program with
-  | Flambda.Let_symbol (_, Flambda.Set_of_closures set_of_closures, program') ->
-     (* TODO Should we do this *)
-     let _ = iter_set_of_closures set_of_closures in
-     iter_program_body program'
-  | Flambda.Let_symbol (sym, const_defining_value, program') ->
-     iter_constant_defining_value (sym, const_defining_value);
-     iter_program_body program'
-  | Flambda.Let_rec_symbol (symDefList, program') ->
-     List.iter iter_constant_defining_value symDefList;
-     iter_program_body program'
-  | Flambda.Initialize_symbol (symbol, _, fields, program') ->
-     let varInfos = List.map analyze_and_ignore fields in
-     let addField idx info =
-       latticeRef := (Lattice.updateSymField symbol idx info (!latticeRef)) in
-     List.iteri addField varInfos;
-     iter_program_body program'
-  | Flambda.Effect (expr, program') ->
-     let _ = analyze_and_ignore expr in
-     iter_program_body program'
-  | Flambda.End _ -> print_string "end\n"
+        let ifields = List.mapi (fun i s -> (s, i)) constant_defining_fields in
+        List.fold_right (analyze_block_field sym) ifields sigma
+    | Flambda.Allocated_const ac -> (
+            let info = (match ac with
+                       | Allocated_const.Int32 i -> ScalarInfo (SC.of_int32 i)
+                       | Allocated_const.Int64 i -> ScalarInfo (SC.of_int64 i)
+                       | Allocated_const.Nativeint ni -> ScalarInfo (SC.of_nativeint ni)
+                       | _ -> Anything) in
+            Lattice.updateSymField sym 0 info sigma)
+    | Flambda.Project_closure _ -> Lattice.updateSymField sym 0 Anything sigma
   in
-  iter_program_body program_body
+  match program_body with
+  | Flambda.Let_symbol (_, (Flambda.Set_of_closures set_of_closures), program') ->
+      let sigma = analyze_set_of_closures set_of_closures sigmaTL in
+      analyze_program_body program' sigma
+  | Flambda.Let_symbol (sym, const_defining_value, program') ->
+      let sigma = analyze_const_def_val (sym, const_defining_value) sigmaTL in
+      analyze_program_body program' sigma
+  | Flambda.Let_rec_symbol (symDefList, program') ->
+      let sigma = List.fold_right analyze_const_def_val symDefList sigmaTL in
+      analyze_program_body program' sigma
+  | Flambda.Initialize_symbol (symbol, _, fields, program') ->
+        let analyze_expr_field (expr, idx) sigma : Lattice.t =
+          let (sigma', info) = analyze_expr expr sigma in
+          Lattice.updateSymField symbol idx info sigma'
+        in
+        let ifields = List.mapi (fun i s -> (s, i)) fields in
+        let sigma = List.fold_right analyze_expr_field ifields sigmaTL in
+        analyze_program_body program' sigma
+  | Flambda.Effect (expr, program') ->
+        let (sigma, _) = analyze_expr expr sigmaTL in
+        analyze_program_body program' sigma
+  | Flambda.End _ -> (print_string "end analyze_toplevel_of_program";
+                      print_newline();
+                      sigmaTL)
 
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
-  then (analyze_toplevel_of_program program;
-        Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:(optimize_array !latticeRef))
+  then let sigma = analyze_program_body program.Flambda.program_body Lattice.bot
+       in Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:(optimize_array sigma)
   else program

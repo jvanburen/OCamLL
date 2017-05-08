@@ -48,23 +48,23 @@ let unwrap (x : 'a option) : 'a =
   Maybe encapsulate the varinfo? probably not.
   *)
 
-let rec add_constraints (al : LL.t) (sigma : L.t) (flam : Flambda.t) : (L.t * L.varInfo) =
-  let add_c (sigma : Lattice.t) (flam : Flambda.t) : (L.t * L.varInfo)  = add_constraints al sigma flam in
-  let add_c_named sigma flam : (L.t * L.varInfo) = add_constraints_named al sigma flam in
-  let updateOut s : Lattice.t = LL.updateOut al flam s in
+let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
+  let add_c (sigma : Lattice.t) (flam : Flambda.t) : (L.t * L.varInfo)  = add_constraints flam sigma in
+  let add_c_named sigma flam : (L.t * L.varInfo) = add_constraints_named flam sigma in
   (match flam with
   | Flambda.Var v -> (sigma, Lattice.getVar_top v sigma)
   | Flambda.Let {Flambda.var; Flambda.defining_expr; Flambda.body; _} ->
     let _ = print_string ("In a let with variable " ^ (Variable.unique_name var) ^ "\n") in
     let (in_lattice, deInfo) = add_c_named sigma defining_expr in
-    let out_lattice = updateOut (Lattice.updateVar var deInfo in_lattice) in
+    let out_lattice = Lattice.updateVar var deInfo in_lattice in
     add_c out_lattice body
   (* Right now, we ignore mutable variables. no memory woohoo *)
   | Flambda.Let_mutable {Flambda.body; _} -> add_c sigma body
   | Flambda.Let_rec (defs, body) ->
     let add_def sigma (name, def) =
       let (sigma, defInfo) = add_c_named sigma def
-      in updateOut (Lattice.updateVar name defInfo sigma) in
+      in (Lattice.updateVar name defInfo sigma)
+    in
     let sigma = List.fold_left add_def sigma defs in
     add_c sigma body
   (* We don't know anything about functions right now, although maybe we ought to.
@@ -78,7 +78,7 @@ let rec add_constraints (al : LL.t) (sigma : L.t) (flam : Flambda.t) : (L.t * L.
   | Flambda.If_then_else (_, trueBranch, falseBranch) ->
     let (sigmaTrue, trueInfo) = add_c sigma trueBranch in
     let (sigmaFalse, falseInfo) = add_c sigma falseBranch in
-    let sigmaNew = updateOut (Lattice.join sigmaTrue sigmaFalse) in
+    let sigmaNew = (Lattice.join sigmaTrue sigmaFalse) in
     (sigmaNew, Lattice.joinVarInfo trueInfo falseInfo)
   | Flambda.Switch (_, {Flambda.consts; Flambda.blocks; Flambda.failaction}) ->
     let add_case (sigma, possibleInfos) (_, case) =
@@ -91,9 +91,9 @@ let rec add_constraints (al : LL.t) (sigma : L.t) (flam : Flambda.t) : (L.t * L.
                       | x::xs -> List.fold_right Lattice.joinVarInfo xs x
                       | [] -> Anything in
     begin match failaction with
-     | None -> (updateOut sigma, switchInfo)
+     | None -> (sigma, switchInfo)
      | Some action -> let (sigma, actionInfo) = add_c sigma action in
-                      (updateOut sigma, L.joinVarInfo switchInfo actionInfo)
+                      (sigma, L.joinVarInfo switchInfo actionInfo)
     end
   | Flambda.String_switch (_, cases, fallthrough) ->
     let add_case (sigma, possibleInfos) (_, case) =
@@ -104,9 +104,9 @@ let rec add_constraints (al : LL.t) (sigma : L.t) (flam : Flambda.t) : (L.t * L.
                       | x::xs -> List.fold_right Lattice.joinVarInfo xs x
                       | [] -> Anything in
     begin match fallthrough with
-     | None -> (updateOut sigma, switchInfo)
+     | None -> (sigma, switchInfo)
      | Some action -> let (sigma, actionInfo) = add_c sigma action in
-                      (updateOut sigma, L.joinVarInfo switchInfo actionInfo)
+                      (sigma, L.joinVarInfo switchInfo actionInfo)
     end
   | Flambda.Try_with (exp, _, handler) -> (* Jacob: what even is the middle variable?? what does it represent?? *)
     let (sigma, expInfo) = add_c sigma exp in
@@ -122,9 +122,8 @@ let rec add_constraints (al : LL.t) (sigma : L.t) (flam : Flambda.t) : (L.t * L.
   | Flambda.Proved_unreachable -> (Lattice.bot, Anything) (* TODO: return _|_ *)
   | _ -> (sigma, Anything)
   )
-and add_constraints_named (al : LL.t)
+and add_constraints_named (named : Flambda.named)
                           (sigma : Lattice.t)
-                          (named : Flambda.named)
                           : (Lattice.t * Lattice.varInfo) =
   (* It's really dumb that this could modify the whole program lattice.
      Flambda is *supposed* to be ANF-form but it's not really. *)
@@ -155,7 +154,7 @@ and add_constraints_named (al : LL.t)
   (*| Flambda.Set_of_closures {Flambda.function_decls = {Flambda.funs; _}; _} ->
       let bindings = Variable.Map.bindings funs in
      let addBindings sigma (_, ({Flambda.body;} : Flambda.function_declaration)) =
-       let (sigma2, _) = add_constraints al sigma body in
+       let (sigma2, _) = add_constraints sigma body in
        sigma2
      in
      (List.fold_left addBindings sigma bindings, Anything) *)
@@ -173,7 +172,7 @@ and add_constraints_named (al : LL.t)
             get_comparison_info sigma comparison left right
        | _ -> Anything
       )
-  | Flambda.Expr expr -> add_constraints al sigma expr
+  | Flambda.Expr expr -> add_constraints expr sigma
   | _ -> (sigma, Anything)
 and get_comparison_info (sigma : Lattice.t)
                         (comparison : Lambda.comparison)
