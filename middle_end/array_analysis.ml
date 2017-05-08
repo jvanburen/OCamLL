@@ -50,19 +50,19 @@ let unwrap (x : 'a option) : 'a =
 
 let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
   let add_c (sigma : Lattice.t) (flam : Flambda.t) : (L.t * L.varInfo)  = add_constraints flam sigma in
-  let add_c_named sigma flam : (L.t * L.varInfo) = add_constraints_named flam sigma in
+  let add_c_named name sigma flam : (L.t * L.varInfo) = add_constraints_named name flam sigma in
   (match flam with
   | Flambda.Var v -> (sigma, Lattice.getVar_top v sigma)
   | Flambda.Let {Flambda.var; Flambda.defining_expr; Flambda.body; _} ->
     let _ = print_string ("In a let with variable " ^ (Variable.unique_name var) ^ "\n") in
-    let (in_lattice, deInfo) = add_c_named sigma defining_expr in
+    let (in_lattice, deInfo) = add_c_named var sigma defining_expr in
     let out_lattice = Lattice.updateVar var deInfo in_lattice in
     add_c out_lattice body
   (* Right now, we ignore mutable variables. no memory woohoo *)
   | Flambda.Let_mutable {Flambda.body; _} -> add_c sigma body
   | Flambda.Let_rec (defs, body) ->
     let add_def sigma (name, def) =
-      let (sigma, defInfo) = add_c_named sigma def
+      let (sigma, defInfo) = add_c_named name sigma def
       in (Lattice.updateVar name defInfo sigma)
     in
     let sigma = List.fold_left add_def sigma defs in
@@ -122,7 +122,8 @@ let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
   | Flambda.Proved_unreachable -> (Lattice.bot, Anything) (* TODO: return _|_ *)
   | _ -> (sigma, Anything)
   )
-and add_constraints_named (named : Flambda.named)
+and add_constraints_named (letBound : Variable.t)
+                          (named : Flambda.named)
                           (sigma : Lattice.t)
                           : (Lattice.t * Lattice.varInfo) =
   (* It's really dumb that this could modify the whole program lattice.
@@ -170,6 +171,7 @@ and add_constraints_named (named : Flambda.named)
           )
        | (Lambda.Pintcomp comparison, [left; right]) ->
             get_comparison_info sigma comparison left right
+       | (Lambda.Pccall _, _) -> ScalarInfo (SC.of_var letBound)
        | _ -> Anything
       )
   | Flambda.Expr expr -> add_constraints expr sigma
