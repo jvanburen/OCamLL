@@ -266,6 +266,12 @@ struct
       pp_close_box ppf () )
     end
 
+  let dump (sigma : t) : unit = (
+    Format.pp_print_flush Format.std_formatter ();
+    print (Format.std_formatter) sigma;
+    Format.pp_print_flush Format.std_formatter ();
+    print_newline ();)
+
   let rec join a b =
     let f _ a b =
       match (a, b) with
@@ -326,33 +332,110 @@ struct
     | Some x -> x
     | None -> Anything
 
-
-  let updateVar var info sigma =
-    let key = Key.of_var var in
-    KeyMap.add key info (KeyMap.remove key sigma)
-  let updateSymField sym field info sigma =
-    let key = Key.of_sym (sym, field) in
-    KeyMap.add key info (KeyMap.remove key sigma)
+  let updateKey k info sigma = KeyMap.add k info (KeyMap.remove k sigma)
+  let updateVar var info sigma = updateKey (Key.of_var var) info sigma
+  let updateSymField sym field info sigma = updateKey (Key.of_sym (sym, field)) info sigma
   let singleton key info : t = KeyMap.singleton key info
   let of_list l : t = KeyMap.of_list l
 
-  let applyBoolInfo (boolInfo : boolConstraints) (sigma : t) : boolConstraints =
-    { ifTrue = KeyMap.union_merge meetVarInfo sigma boolInfo.ifTrue;
-      ifFalse = KeyMap.union_merge meetVarInfo sigma boolInfo.ifFalse;
-    }
-  let computeBoolInfo (k : Key.t) (sigma : t) : boolConstraints =
-    match getKey_opt k sigma with
-    | Some (BoolInfo boolInfo) ->
-        { ifTrue = KeyMap.union_merge meetVarInfo sigma boolInfo.ifTrue;
-          ifFalse = KeyMap.union_merge meetVarInfo sigma boolInfo.ifFalse;
+  let rec combineVarInfo_shallow (v1 : varInfo) (v2 : varInfo) : varInfo =
+    match (v1, v2) with
+    | (Anything, other) -> other
+    | (other, Anything) -> other
+    | (BoolInfo aa, BoolInfo bb) ->
+        BoolInfo {
+          ifTrue = combineLattices_shallow aa.ifTrue bb.ifTrue;
+          ifFalse = combineLattices_shallow aa.ifFalse bb.ifFalse;
         }
-    | _ -> { ifTrue = sigma; ifFalse = sigma; }
+    | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.meet aa bb)
+    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (SC.meet aa bb)
+    | _ -> raise TypeMismatch
+  and combineLattices_shallow (s1 : t) (s2 : t) : t =
+    KeyMap.union_merge meetVarInfo s1 s2
+
+  (* refines bindings in second with info from first *)
+  (* let refineLatticeWith (first : t) (second : t) : t =
+    let mergeRight x y =
+      match (x, y) with
+      | (Some x, Some y) -> Some (meetVarInfo x y)
+      | (None, Some y) -> Some y
+      | (_, None) -> None
+    in
+    KeyMap.merge mergeRight first second *)
+
+  let addRangeToSC ((lb, ub): int64 option * int64 option)
+                        (sc : SC.t) : SC.t =
+    (* add upper bound and lower bound, then join *)
+    (* let rec addRange (varInfo : varInfo) : varInfo =
+      match varInfo with
+      | ScalarInfo sc -> ScalarInfo (SC.join (SC.plus_constant ub sc) (SC.plus_constant lb sc))
+      | ArrayOfLength sc -> ScalarInfo (SC.join (SC.plus_constant ub sc) (SC.plus_constant lb sc))
+      | BoolInfo bi -> BoolInfo (fmapBoolConstraints (KeyMap.map addRange) bi)
+      | Anything -> Anything
+    in *)
+    {lb=(match lb with
+        | Some lb -> LB.plus_constant lb sc.lb
+        | None -> LB.top);
+     ub=(match ub with
+        | Some ub -> UB.plus_constant ub sc.ub
+        | None -> UB.top)
+    }
+
+  let computeClosure (sigma : t) : t =
+    let getSCLattice (sc : SC.t) : t =
+      (* Takes a key -> SC mapping and turns it into a lattice of additional constraints *)
+      (* it promotes a scalarconstraint to a lattice *)
+      let f x lb ub =
+        (* turns a single constraint x -> [xlo, xhi] into a scalarconstraint *)
+        if x = Key.Zero then None
+        else Some (ScalarInfo (addRangeToSC (lb, ub) sc))
+      in
+      KeyMap.merge f sc.lb sc.ub
+    in
+    let accumVarInfo (_ : Key.t) (v : varInfo) (acc : t) : t =
+      match v with
+      | ScalarInfo sc
+      | ArrayOfLength sc ->
+        combineLattices_shallow (getSCLattice sc) acc
+      | _ -> acc (* probably no need to go into it this far... *)
+    in
+    KeyMap.fold accumVarInfo sigma bot
 
   let addFreeVars (vars : Variable.Set.t) (sigma : t) : t =
     let addvar var s =
-      KeyMap.add (Key.of_var var) (ArrayOfLength (SC.of_var var)) s
+      KeyMap.add (Key.of_var var) (ScalarInfo (SC.of_var var)) s
     in
       Variable.Set.fold addvar vars sigma
+
+  let fmapBoolConstraints (f : t -> t)
+                          (boolInfo : boolConstraints) : boolConstraints =
+    { ifTrue = f boolInfo.ifTrue; ifFalse = f boolInfo.ifFalse; }
+
+
+  let debug_println s =
+    (Format.pp_print_flush Format.std_formatter ();
+    print_string s;
+    print_newline ();
+    Format.pp_print_flush Format.std_formatter ();)
+
+  let applyBoolInfo (boolInfo : boolConstraints) (sigma : t) : boolConstraints =
+    let result =
+      fmapBoolConstraints computeClosure
+      { ifTrue = combineLattices_shallow sigma boolInfo.ifTrue;
+        ifFalse = combineLattices_shallow sigma boolInfo.ifFalse;
+      } in
+    (debug_println "applying bool info to lattice:";
+     dump sigma;
+     debug_println "True branch after:";
+     dump (result.ifTrue);
+     result
+    )
+
+  let computeBoolInfo (k : Key.t) (sigma : t) : boolConstraints =
+    match getKey_opt k sigma with
+    | Some (BoolInfo boolInfo) -> applyBoolInfo boolInfo sigma
+    | _ -> { ifTrue = sigma; ifFalse = sigma; }
+
 
 end
 module L = Lattice
