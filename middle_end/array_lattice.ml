@@ -351,7 +351,7 @@ struct
     | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (SC.meet aa bb)
     | _ -> raise TypeMismatch
   and combineLattices_shallow (s1 : t) (s2 : t) : t =
-    KeyMap.union_merge meetVarInfo s1 s2
+    KeyMap.union_merge combineVarInfo_shallow s1 s2
 
   (* refines bindings in second with info from first *)
   (* let refineLatticeWith (first : t) (second : t) : t =
@@ -399,7 +399,7 @@ struct
         combineLattices_shallow (getSCLattice sc) acc
       | _ -> acc (* probably no need to go into it this far... *)
     in
-    KeyMap.fold accumVarInfo sigma bot
+    KeyMap.fold accumVarInfo sigma sigma
 
   let addFreeVars (vars : Variable.Set.t) (sigma : t) : t =
     let addvar var s =
