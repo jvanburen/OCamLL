@@ -119,7 +119,16 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
                 let greaterThanZero =
                   Key.Map.mem Key.Zero idxInfo.lb &&
                     (Key.Map.find Key.Zero idxInfo.lb) >= 0L in
-                let idxLtArr = true in
+                (* TODO: Make this general *)
+                let handleFalse e = (try e with _ -> false) in
+                let idxZero = Key.Map.find Key.Zero idxInfo.ub in
+                let arrZero = Key.Map.find Key.Zero arrInfo.lb in
+                print_string ("idxZero: " ^ (Int64.to_string idxZero) ^ "\n");
+                print_string ("arrZero: " ^ (Int64.to_string arrZero) ^ "\n");
+                let idxLtArr = handleFalse
+                  (Key.Map.find Key.Zero idxInfo.ub < Key.Map.find Key.Zero arrInfo.lb)
+                  
+                in
                 ScalarConstraint.print Format.std_formatter arrInfo;
                 Format.pp_print_flush Format.std_formatter ();
                 print_newline();

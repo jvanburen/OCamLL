@@ -130,6 +130,7 @@ struct
       | (None, other) -> other
       | (other, None) -> other
     in Key.Map.merge f a b
+  let eq a b = Key.Map.equal (=) a b
   let leq a b = (join a b) = b (* TODO-someday: make this more efficient *)
   let plus_constant (c : int64) (lat : t) : t = Key.Map.map (Int64.add c) lat
 
@@ -172,7 +173,7 @@ struct
   let of_upper_bound ub : t = {lb=LB.top; ub=ub}
   let of_lower_bound lb : t = {lb=lb; ub=UB.top}
   let nonnegative : t = of_lower_bound (LB.of_int64 Int64.zero)
-
+  let eq a b = LB.eq a.lb b.lb && UB.eq a.ub b.ub
   let print ppf (sc : t) : unit =
     let open Format in
     let print_entry k x y = (
@@ -368,7 +369,16 @@ struct
       | (_, None) -> None
     in
     KeyMap.merge mergeRight first second *)
-
+  let rec latticeVarInfoEq a b =
+    match (a, b) with
+    | (BoolInfo a, BoolInfo b) -> boolInfoEq a b
+    | (ScalarInfo a, ScalarInfo b) -> ScalarConstraint.eq a b
+    | (ArrayOfLength a, ArrayOfLength b) -> ScalarConstraint.eq a b
+    | (Anything, Anything) -> true
+    | _ -> false
+  and boolInfoEq a b =
+    latticeEq a.ifTrue b.ifTrue && latticeEq a.ifFalse b.ifFalse
+  and latticeEq a b = KeyMap.equal latticeVarInfoEq a b
   let computeClosure (sigma : t) : t =
     let addReverseRangeToSC ((lb, ub): int64 option * int64 option)
                         (sc : SC.t) : SC.t =
@@ -396,13 +406,32 @@ struct
         combineLattices_shallow (getSCLattice sc) acc
       | _ -> acc (* probably no need to go into it this far... *)
     in
+    let expandVariables (key : Key.t) (v : varInfo) (acc : t) : t =
+      match v with
+      | ScalarInfo sc
+      | ArrayOfLength sc ->
+         (* Merge to keep things of the form x + [0, 0] *)
+         let mergeBounds k a b =
+           (match (a, b) with 
+            | (Some i, Some j) ->
+               (* We only want to keep variable information. *)
+               if i = j && k != Key.Zero then getKey_opt k acc else None
+            | _ -> None) in
+         let newBounds = Key.Map.merge mergeBounds sc.ub sc.lb in
+         let foldFun (_ : Key.t) (newInfo : latticeVarInfo) (sigma : lattice) =
+             updateKey key (combineVarInfo_shallow v newInfo) sigma in
+         Key.Map.fold foldFun newBounds acc
+      | _ -> acc
+    in
     let rec repeat_until_fixed last =
       let next = KeyMap.fold accumVarInfo last last in
+      let next = KeyMap.fold expandVariables next next in
       let _ = debug_println "computing fixed point again" in
-      if last = next
-        then last
-        else (debug_println "Repeating:";
-              dump next;
+      if latticeEq last next
+      then last
+      else (debug_println "Repeating:";
+            dump next;
+            dump last;
             repeat_until_fixed next)
     in
     let withoutZero = KeyMap.remove Key.Zero (repeat_until_fixed sigma) in
