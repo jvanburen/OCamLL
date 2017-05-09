@@ -42,6 +42,32 @@ exception PrimArity
   | ScalarInfo si -> 
   | 
 *)
+let can_eliminate_bound_check (lattice : Lattice.t)
+                              (arr : Variable.t)
+                              (idx : Variable.t) : bool =
+  print_string "Attempting to eliminate bound check for ";
+  print_string (Variable.unique_name arr);
+  print_string "\n";
+  print_string (Variable.unique_name idx);
+  print_string "\n";
+  match (Lattice.getVar_top arr lattice, Lattice.getVar_top idx lattice) with
+  | (ScalarInfo arrInfo, ScalarInfo idxInfo) ->
+     print_string "Got some info~~~\n";
+     Lattice.print Format.std_formatter lattice;
+     Format.pp_print_flush Format.std_formatter ();
+     print_newline();
+     let greaterThanZero =
+       Key.Map.mem Key.Zero idxInfo.lb &&
+         (Key.Map.find Key.Zero idxInfo.lb) >= 0L in
+     (* TODO: Make this general *)
+     let handleFalse e = (try e with _ -> false) in
+     let idxLtArrAtKey key ub =
+       handleFalse (ub < Key.Map.find key arrInfo.lb) in
+     let idxLtArr = Key.Map.exists idxLtArrAtKey idxInfo.ub in
+     print_string ("Result: " ^ (string_of_bool (greaterThanZero && idxLtArr)) ^ "\n");
+     greaterThanZero && idxLtArr
+  | _ -> let _ = print_string ("Result: false\n") in false
+  
 let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) : Flambda.t =
   match expr with
   | Flambda.Var _ -> expr
@@ -104,46 +130,20 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
      (match prim with
      | Lambda.Parrayrefs arr_kind ->
         let _ = print_string "Got an array reference\n" in
-        Flambda.Prim (Lambda.Parrayrefu arr_kind, vars, di)
+        (match vars with
+         | [arr; idx] -> if can_eliminate_bound_check lattice arr idx
+                         then Flambda.Prim (Lambda.Parrayrefu arr_kind, vars, di)
+                         else Flambda.Prim (Lambda.Parrayrefs arr_kind, vars, di)
+         | _ -> raise PrimArity)
      | Lambda.Parraysets arr_kind ->
         let _ = print_string "Setting an array\n" in
-        let _ = print_string ((string_of_int (List.length vars)) ^ " " ^ (listToString "" (List.map Variable.unique_name vars)) ^"\n") in
+        let _ = print_string ((string_of_int (List.length vars)) ^
+                                " " ^
+                                  (listToString "" (List.map Variable.unique_name vars)) ^"\n") in
         (match vars with
-         | [arr; idx; _] ->
-            (match (Lattice.getVar_top arr lattice, Lattice.getVar_top idx lattice) with
-             | (ScalarInfo arrInfo, ScalarInfo idxInfo) ->
-                print_string "Got some info~~~\n";
-                Lattice.print Format.std_formatter lattice;
-                Format.pp_print_flush Format.std_formatter ();
-                print_newline();
-                let greaterThanZero =
-                  Key.Map.mem Key.Zero idxInfo.lb &&
-                    (Key.Map.find Key.Zero idxInfo.lb) >= 0L in
-                (* TODO: Make this general *)
-                let handleFalse e = (try e with _ -> false) in
-                let idxZero = Key.Map.find Key.Zero idxInfo.ub in
-                let arrZero = Key.Map.find Key.Zero arrInfo.lb in
-                print_string ("idxZero: " ^ (Int64.to_string idxZero) ^ "\n");
-                print_string ("arrZero: " ^ (Int64.to_string arrZero) ^ "\n");
-                let idxLtArr = handleFalse
-                  (Key.Map.find Key.Zero idxInfo.ub < Key.Map.find Key.Zero arrInfo.lb)
-                  
-                in
-                ScalarConstraint.print Format.std_formatter arrInfo;
-                Format.pp_print_flush Format.std_formatter ();
-                print_newline();
-                ScalarConstraint.print Format.std_formatter idxInfo;
-                Format.pp_print_flush Format.std_formatter ();
-                print_newline();
-                print_string (string_of_bool greaterThanZero);
-                print_newline ();
-                print_string (string_of_bool idxLtArr);
-                print_newline ();
-                if greaterThanZero && idxLtArr
-                then let _ = print_string "unsafe\n" in
-                     Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
-                else Flambda.Prim (Lambda.Parraysets arr_kind, vars, di)
-             | _ -> Flambda.Prim (Lambda.Parraysets arr_kind, vars, di))
+         | [arr; idx; _] -> if can_eliminate_bound_check lattice arr idx
+                            then Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
+                            else Flambda.Prim (Lambda.Parraysets arr_kind, vars, di)
          | _ -> raise PrimArity)
      | _ -> named)
 )
