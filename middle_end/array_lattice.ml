@@ -326,7 +326,7 @@ struct
     match getKey_opt (K.of_var v) sigma with
     | Some x -> x
     | None -> Anything
-
+                
   let getSymField_top sym sigma =
     match getKey_opt (K.of_sym sym) sigma with
     | Some x -> x

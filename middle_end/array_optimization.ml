@@ -19,7 +19,7 @@ let () = Pass_wrapper.register ~pass_name:pass_name
 open Array_analysis
 open Array_lattice
 let x : Lattice.t = Lattice.bot
-
+exception PrimArity
 (* TODO: generate lattice for entire program and store in a ref, using
   iterators from flambda_iterators.mli
   We shouldn't need to iterate until quiescence because we don't deal with
@@ -34,8 +34,14 @@ let x : Lattice.t = Lattice.bot
 
   TODO-Someday: check for physical equality before creating a new node
       (important GC speed optimization)
+ *)
+(* If lattice[elem] = ScalarInfo {x -> [0, 0]}, returns Some x. 
+ * Otherwise, returns None. *)
+(* let getSingleScalarConstraint elem lattice =
+  match Lattice.getVar_top elem lattice with
+  | ScalarInfo si -> 
+  | 
 *)
-
 let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) : Flambda.t =
   match expr with
   | Flambda.Var _ -> expr
@@ -102,7 +108,34 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
      | Lambda.Parraysets arr_kind ->
         let _ = print_string "Setting an array\n" in
         let _ = print_string ((string_of_int (List.length vars)) ^ " " ^ (listToString "" (List.map Variable.unique_name vars)) ^"\n") in
-        Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
+        (match vars with
+         | [arr; idx; _] ->
+            (match (Lattice.getVar_top arr lattice, Lattice.getVar_top idx lattice) with
+             | (ScalarInfo arrInfo, ScalarInfo idxInfo) ->
+                print_string "Got some info~~~\n";
+                Lattice.print Format.std_formatter lattice;
+                Format.pp_print_flush Format.std_formatter ();
+                print_newline();
+                let greaterThanZero =
+                  Key.Map.mem Key.Zero idxInfo.lb &&
+                    (Key.Map.find Key.Zero idxInfo.lb) >= 0L in
+                let idxLtArr = true in
+                ScalarConstraint.print Format.std_formatter arrInfo;
+                Format.pp_print_flush Format.std_formatter ();
+                print_newline();
+                ScalarConstraint.print Format.std_formatter idxInfo;
+                Format.pp_print_flush Format.std_formatter ();
+                print_newline();
+                print_string (string_of_bool greaterThanZero);
+                print_newline ();
+                print_string (string_of_bool idxLtArr);
+                print_newline ();
+                if greaterThanZero && idxLtArr
+                then let _ = print_string "unsafe\n" in
+                     Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
+                else Flambda.Prim (Lambda.Parraysets arr_kind, vars, di)
+             | _ -> Flambda.Prim (Lambda.Parraysets arr_kind, vars, di))
+         | _ -> raise PrimArity)
      | _ -> named)
 )
 (* Oh no, globals! *)
@@ -187,6 +220,7 @@ let rec analyze_program_body (program_body : Flambda.program_body)
 
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
-  then let sigma = analyze_program_body program.Flambda.program_body Lattice.bot
-       in Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:(optimize_array sigma)
+  then let sigma = analyze_program_body program.Flambda.program_body Lattice.bot in 
+       let sigma = Lattice.computeClosure sigma in
+       Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:(optimize_array sigma)
   else program
