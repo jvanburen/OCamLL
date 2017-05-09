@@ -60,10 +60,9 @@ let can_eliminate_bound_check (lattice : Lattice.t)
        Key.Map.mem Key.Zero idxInfo.lb &&
          (Key.Map.find Key.Zero idxInfo.lb) >= 0L in
      (* TODO: Make this general *)
-     let handleFalse e = (try e with _ -> false) in
      let idxLtArrAtKey key ub =
-       handleFalse (ub < Key.Map.find key arrInfo.lb) in
-     let idxLtArr = Key.Map.exists idxLtArrAtKey idxInfo.ub in
+       (try (ub < Key.Map.find key arrInfo.lb) with Not_found -> false) in
+     let idxLtArr = try (Key.Map.exists idxLtArrAtKey idxInfo.ub) with _ -> raise (Failure "noo")  in
      print_string ("Result: " ^ (string_of_bool (greaterThanZero && idxLtArr)) ^ "\n");
      greaterThanZero && idxLtArr
   | _ -> let _ = print_string ("Result: false\n") in false

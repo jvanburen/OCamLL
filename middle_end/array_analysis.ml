@@ -171,7 +171,12 @@ and add_constraints_named (letBound : Variable.t)
           )
        | (Lambda.Pintcomp comparison, [left; right]) ->
             get_comparison_info sigma comparison left right
-       | (Lambda.Pccall _, _) -> ScalarInfo (SC.of_var letBound)
+       | (Lambda.Pccall desc, _) ->
+          (match (desc.Primitive.prim_name, vars) with
+           | ("caml_make_vect", [len; _]) ->  
+              let _ = print_string ("Primitive:\n" ^ desc.Primitive.prim_name) in
+              ScalarInfo (SC.of_var len)
+           | _ -> ScalarInfo (SC.of_var letBound))
        | _ -> Anything
       )
   | Flambda.Expr expr -> add_constraints expr sigma
