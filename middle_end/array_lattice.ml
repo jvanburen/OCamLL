@@ -272,6 +272,12 @@ struct
     Format.pp_print_flush Format.std_formatter ();
     print_newline ();)
 
+  let debug_println s =
+    (Format.pp_print_flush Format.std_formatter ();
+    print_string s;
+    print_newline ();
+    Format.pp_print_flush Format.std_formatter ();)
+
   let rec join a b =
     let f _ a b =
       match (a, b) with
@@ -378,10 +384,8 @@ struct
     let getSCLattice (sc : SC.t) : t =
       (* Takes a key -> SC mapping and turns it into a lattice of additional constraints *)
       (* it promotes a scalarconstraint to a lattice *)
-      let f x lb ub =
+      let f _ lb ub = Some (ScalarInfo (addReverseRangeToSC (lb, ub) sc))
         (* turns a single constraint x -> [xlo, xhi] into a scalarconstraint *)
-        if x = Key.Zero then None
-        else Some (ScalarInfo (addReverseRangeToSC (lb, ub) sc))
       in
       KeyMap.merge f sc.lb sc.ub
     in
@@ -392,24 +396,34 @@ struct
         combineLattices_shallow (getSCLattice sc) acc
       | _ -> acc (* probably no need to go into it this far... *)
     in
-    KeyMap.fold accumVarInfo sigma sigma
+    let rec repeat_until_fixed last =
+      let next = KeyMap.fold accumVarInfo last last in
+      let _ = debug_println "computing fixed point again" in
+      if last = next
+        then last
+        else (debug_println "Repeating:";
+              dump next;
+            repeat_until_fixed next)
+    in
+    let withoutZero = KeyMap.remove Key.Zero (repeat_until_fixed sigma) in
+    (debug_println "Done";
+     debug_println "Computing closure before:";
+     dump sigma;
+     debug_println "Computing closure after:";
+     dump withoutZero;
+     withoutZero
+    )
 
   let addFreeVars (vars : Variable.Set.t) (sigma : t) : t =
     let addvar var s =
       KeyMap.add (Key.of_var var) (ScalarInfo (SC.of_var var)) s
     in
-      Variable.Set.fold addvar vars sigma
+    Variable.Set.fold addvar vars sigma
 
   let fmapBoolConstraints (f : t -> t)
                           (boolInfo : boolConstraints) : boolConstraints =
     { ifTrue = f boolInfo.ifTrue; ifFalse = f boolInfo.ifFalse; }
 
-
-  let debug_println s =
-    (Format.pp_print_flush Format.std_formatter ();
-    print_string s;
-    print_newline ();
-    Format.pp_print_flush Format.std_formatter ();)
 
   let applyBoolInfo (boolInfo : boolConstraints) (sigma : t) : boolConstraints =
     let result =
@@ -417,12 +431,7 @@ struct
       { ifTrue = combineLattices_shallow sigma boolInfo.ifTrue;
         ifFalse = combineLattices_shallow sigma boolInfo.ifFalse;
       } in
-    (debug_println "applying bool info to lattice:";
-     dump sigma;
-     debug_println "True branch after:";
-     dump (result.ifTrue);
-     result
-    )
+    result
 
   let computeBoolInfo (k : Key.t) (sigma : t) : boolConstraints =
     match getKey_opt k sigma with
