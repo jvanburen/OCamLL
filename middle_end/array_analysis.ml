@@ -48,6 +48,8 @@ let unwrap (x : 'a option) : 'a =
   Maybe encapsulate the varinfo? probably not.
   *)
 
+type arith_kind = ADD | SUB
+
 let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
   let add_c (sigma : Lattice.t) (flam : Flambda.t) : (L.t * L.varInfo)  = add_constraints flam sigma in
   let add_c_named name sigma flam : (L.t * L.varInfo) = add_constraints_named name flam sigma in
@@ -75,9 +77,10 @@ let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
   | Flambda.Send _ -> (sigma, Anything)
   (* Assignment of a mutable variable. We might want to return to this later *)
   | Flambda.Assign _ -> (sigma, Anything)
-  | Flambda.If_then_else (_, trueBranch, falseBranch) ->
-    let (sigmaTrue, trueInfo) = add_c sigma trueBranch in
-    let (sigmaFalse, falseInfo) = add_c sigma falseBranch in
+  | Flambda.If_then_else (v, trueBranch, falseBranch) ->
+    let sigmaIn = Lattice.computeBoolInfo (Key.of_var v) sigma in
+    let (sigmaTrue, trueInfo) = add_c sigmaIn.ifTrue trueBranch in
+    let (sigmaFalse, falseInfo) = add_c sigmaIn.ifFalse falseBranch in
     let sigmaNew = (Lattice.join sigmaTrue sigmaFalse) in
     (sigmaNew, Lattice.joinVarInfo trueInfo falseInfo)
   | Flambda.Switch (_, {Flambda.consts; Flambda.blocks; Flambda.failaction}) ->
@@ -125,7 +128,7 @@ let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
      let bvConstraint = ScalarInfo {lb = LB.of_var fromVal; ub = UB.of_var toVal} in
      let sigma = Lattice.updateVar bv bvConstraint sigma in
      add_c sigma for_loop.Flambda.body
-  | Flambda.Proved_unreachable -> (Lattice.bot, Anything) 
+  | Flambda.Proved_unreachable -> (Lattice.bot, Anything)
   | _ -> (sigma, Anything)
   )
 and add_constraints_named (letBound : Variable.t)
@@ -170,16 +173,17 @@ and add_constraints_named (letBound : Variable.t)
        (* Ensure we're only looking at the length of a single array. *)
        | (Lambda.Parraylength _, [var]) ->
           (match Lattice.getVar_top var sigma with
-          | ArrayOfLength sc -> ScalarInfo sc
           | ScalarInfo sc -> ScalarInfo sc (* It's not a very type-safe lattice... *)
           | Anything -> ScalarInfo SC.nonnegative
           | BoolInfo _ -> raise TypeMismatch (* Nevertheless, this should never happen *)
           )
        | (Lambda.Pintcomp comparison, [left; right]) ->
             get_comparison_info sigma comparison left right
+(*        | (Lambda.Psubint, [left; right]) ->
+            do_arithmetic sigma comparison left right *)
        | (Lambda.Pccall desc, _) ->
           (match (desc.Primitive.prim_name, vars) with
-           | ("caml_make_vect", [len; _]) ->  
+           | ("caml_make_vect", [len; _]) ->
               let _ = print_string ("Primitive:\n" ^ desc.Primitive.prim_name) in
               ScalarInfo (SC.of_var len)
            | _ -> ScalarInfo (SC.of_var letBound))
@@ -258,3 +262,6 @@ and get_comparison_info (sigma : Lattice.t)
                     ifFalse = Lattice.bot}
   | Lambda.Cneq -> b{ifTrue = Lattice.bot;
                      ifFalse = mapFromTwo (mkEQ left right, mkEQ right left)}
+(* and do_arithmetic (kind : arith_kind) (left : Variable.t) (right : Variable.t) =
+  match ()
+ *)
