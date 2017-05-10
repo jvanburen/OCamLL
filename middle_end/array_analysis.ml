@@ -179,8 +179,8 @@ and add_constraints_named (letBound : Variable.t)
           )
        | (Lambda.Pintcomp comparison, [left; right]) ->
             get_comparison_info sigma comparison left right
-(*        | (Lambda.Psubint, [left; right]) ->
-            do_arithmetic sigma comparison left right *)
+       | (Lambda.Paddint, [left; right]) -> Lattice.add_vars sigma left right
+       | (Lambda.Psubint, [left; right]) -> Lattice.sub_vars sigma left right
        | (Lambda.Pccall desc, _) ->
           (match (desc.Primitive.prim_name, vars) with
            | ("caml_make_vect", [len; _]) ->
@@ -262,6 +262,6 @@ and get_comparison_info (sigma : Lattice.t)
                     ifFalse = Lattice.bot}
   | Lambda.Cneq -> b{ifTrue = Lattice.bot;
                      ifFalse = mapFromTwo (mkEQ left right, mkEQ right left)}
-(* and do_arithmetic (kind : arith_kind) (left : Variable.t) (right : Variable.t) =
-  match ()
- *)
+
+
+

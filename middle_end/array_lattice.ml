@@ -138,6 +138,9 @@ struct
   let of_key k : t = Key.Map.singleton k Int64.zero
   let of_int64 v : t = of_offset Key.Zero v
   let of_var v : t = of_key (Key.of_var v)
+
+  let getBound k kl = try Some (Key.Map.find k kl)
+                      with Not_found -> None
 end
 
 module UpperBound = KeyLattice(struct
@@ -170,8 +173,22 @@ struct
   let of_key k : t = {lb = LB.of_key k; ub = UB.of_key k}
   let of_var v : t = of_key (Key.of_var v)
 
+  (* TODO-someday: make this a record *)
+  let get_bounds (k : Key.t) (sc : t) : (int64 option * int64 option) =
+    (LB.getBound k sc.lb, UB.getBound k sc.ub)
+
   let of_upper_bound ub : t = {lb=LB.top; ub=ub}
   let of_lower_bound lb : t = {lb=lb; ub=UB.top}
+
+  let addRange ((lb, ub) : int64 option * int64 option)
+               (sc : t) : t =
+    {ub=(match ub with
+        | Some ub -> UB.plus_constant ub sc.ub
+        | None -> UB.top);
+     lb=(match lb with
+        | Some lb -> LB.plus_constant lb sc.lb
+        | None -> LB.top)
+    }
   let nonnegative : t = of_lower_bound (LB.of_int64 Int64.zero)
   let eq a b = LB.eq a.lb b.lb && UB.eq a.ub b.ub
   let print ppf (sc : t) : unit =
@@ -337,6 +354,13 @@ struct
   let singleton key info : t = KeyMap.singleton key info
   let of_list l : t = KeyMap.of_list l
 
+  let negateBounds (lb, ub)  =
+    let flip x = match x with
+                 | Some x -> Some (Int64.neg x)
+                 | None -> None
+    in
+    (flip ub, flip lb)
+
   let rec combineVarInfo_shallow (v1 : varInfo) (v2 : varInfo) : varInfo =
     match (v1, v2) with
     | (Anything, other) -> other
@@ -371,27 +395,13 @@ struct
   and latticeEq a b = KeyMap.equal varInfoEq a b
 
   let computeClosure (sigma : t) : t =
-    let addRangeToSC ((lb, ub) : int64 option * int64 option)
-                     (sc : SC.t) : SC.t =
-        {ub=(match ub with
-            | Some ub -> UB.plus_constant ub sc.ub
-            | None -> UB.top);
-         lb=(match lb with
-            | Some lb -> LB.plus_constant lb sc.lb
-            | None -> LB.top)
-        }
-    in
     let getSCLattice (k : Key.t) (sc : SC.t) : t =
       (* Takes a key -> SC mapping and turns it into a lattice of additional constraints *)
       (* it promotes a scalarconstraint to a lattice *)
       (* derives additional information from inequalities *)
-      let flip x = match x with
-                   | Some x -> Some (Int64.neg x)
-                   | None -> None
-      in
       let f _ lb ub =
          (* adds, then join. yes, we're intentionally flipping + negating lb and ub *)
-        Some (ScalarInfo (addRangeToSC (flip ub, flip lb) (SC.of_key k)))
+        Some (ScalarInfo (SC.addRange (negateBounds (lb, ub)) (SC.of_key k)))
       in
       KeyMap.merge f sc.lb sc.ub
     in
@@ -399,7 +409,7 @@ struct
       (* Takes a key -> SC mapping and expands the scalarconstraints to moar lattice info. *)
       let f k lb ub =
         match getKey_exn k sigma with
-        | ScalarInfo sc -> Some (addRangeToSC (lb, ub) sc)
+        | ScalarInfo sc -> Some (SC.addRange (lb, ub) sc)
         | _ -> None
       in
       let (eachFlattened : SC.t KeyMap.t) = KeyMap.merge f sc.lb sc.ub in
@@ -463,7 +473,29 @@ struct
     | Some (BoolInfo boolInfo) -> applyBoolInfo boolInfo sigma
     | _ -> { ifTrue = sigma; ifFalse = sigma; }
 
-  (* let  *)
+
+
+  let add_vars (sigma : t) (v1 : Variable.t) (v2 : Variable.t) : varInfo =
+    match (getVar_top v1 sigma, getVar_top v2 sigma) with
+    | (ScalarInfo sc1, ScalarInfo sc2) ->
+      let x = SC.addRange (SC.get_bounds Key.Zero sc1) sc2 in
+      let y = SC.addRange (SC.get_bounds Key.Zero sc2) sc1 in
+      ScalarInfo (SC.join x y)
+    | _ -> Anything
+
+
+  let sub_vars (sigma : t) (v1 : Variable.t) (v2 : Variable.t) : varInfo =
+    let negateSC sc =
+      {lb = Key.Map.map Int64.neg sc.ub;
+       ub = Key.Map.map Int64.neg sc.lb}
+    in
+    match (getVar_top v1 sigma, getVar_top v2 sigma) with
+    | (ScalarInfo sc1, ScalarInfo sc2) ->
+      let sc2 = negateSC sc2 in
+      let x = SC.addRange (SC.get_bounds Key.Zero sc1) sc2 in
+      let y = SC.addRange (SC.get_bounds Key.Zero sc2) sc1 in
+      ScalarInfo (SC.join x y)
+    | _ -> Anything
 
 end
 module L = Lattice
