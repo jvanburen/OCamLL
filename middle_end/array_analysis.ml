@@ -118,8 +118,14 @@ let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
     (* In general, we can't know anything about a while loop because who knows if the
      * condition will ever be true *)
     (sigma, Anything)
-  | Flambda.For { Flambda.body; _; } -> add_c sigma body (* TODO: Fix this!!! *)
-  | Flambda.Proved_unreachable -> (Lattice.bot, Anything) (* TODO: return _|_ *)
+  | Flambda.For for_loop ->
+     let fromVal = for_loop.Flambda.from_value in
+     let toVal = for_loop.Flambda.to_value in
+     let bv = for_loop.Flambda.bound_var in
+     let bvConstraint = ScalarInfo {lb = LB.of_var fromVal; ub = UB.of_var toVal} in
+     let sigma = Lattice.updateVar bv bvConstraint sigma in
+     add_c sigma for_loop.Flambda.body
+  | Flambda.Proved_unreachable -> (Lattice.bot, Anything) 
   | _ -> (sigma, Anything)
   )
 and add_constraints_named (letBound : Variable.t)
