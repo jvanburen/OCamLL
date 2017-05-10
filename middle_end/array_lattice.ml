@@ -415,7 +415,7 @@ struct
            (match (a, b) with 
             | (Some i, Some j) ->
                (* We only want to keep variable information. *)
-               if i = j && k != Key.Zero then getKey_opt k acc else None
+               if i = 0L && (j = 0L && k <> Key.Zero) then getKey_opt k acc else None
             | _ -> None) in
          let newBounds = Key.Map.merge mergeBounds sc.ub sc.lb in
          let foldFun (_ : Key.t) (newInfo : latticeVarInfo) (sigma : lattice) =
