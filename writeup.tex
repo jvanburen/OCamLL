@@ -1,0 +1,107 @@
+\documentclass[11pt]{article}
+\usepackage[final]{pdfpages}
+\usepackage[margin=1in]{geometry}
+\usepackage{lastpage}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usepackage{amssymb}
+\usepackage{hyperref}
+
+
+\lhead{Jacob Van Buren, Sinan Cepel\\
+\texttt{jvanbure}, \texttt{scepel}}
+\chead{\textbf{15-745}\\ \textbf{Final Report}}
+\pagestyle{fancy}
+
+\title{Symbolic Range Analysis For Arrays In OCaml}
+\date{May 09, 2017}
+\author{Jacob Van Buren, Sinan Cepel \\ \{jvanbure, scepel\}@andrew.cmu.edu}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+The OCaml language is a functional programming language with extensive support for imperative features, such as working with mutable references and arrays. There are currently no optimizations for arrays in the OCaml compiler, even though the imperative features of OCaml are most commonly used when performance is a concern.
+
+In order to help solve this problem, our project implements a symbolic range analysis pass in OCaml. We enriched the middle-end of the OCaml compiler by adding two passes - one that analyzes symbolic ranges, and a second pass that eliminates bounds checks for OCaml arrays based on the analysis information.
+
+
+\subsection{Infrastructure}
+
+We forked the OCaml compiler, developed by Inria and available as an open-source compiler on Github at \url{https://github.com/ocaml/ocaml}. This optimizing compiler provides a front-end and back-end that allowed us to restrict our attention to the middle-end. We worked with the Flambda intermediate representation which was contributed to the OCaml compiler by Jane Street.
+
+The optimization pass allows idiomatic OCaml code to run up to 40\% faster on CPU-bound tasks, as discussed in the benchmarks section. 
+
+\subsection{Distribution of Work}
+
+We have distributed the work evenly, i.e. Sinan and Jacob have both done 50\% of the work. For the most part, we worked on the same part of the codebase simultaneously. However, Jacob was responsible for the final design of the lattice, and Sinan focused more on implementing the actual analysis and optimization passes.
+
+\section{Structure of the Compiler}
+
+All of our modifications to the OCaml compiler were in the \verb|middle_end/| directory.
+
+The files of interest, assuming that the current working directory is the top-level directory, are
+
+\begin{verbatim}
+./README
+./middle_end/array_lattice.ml
+./middle_end/array_analysis.ml
+./middle_end/array_optimization.ml
+./testsuite/opticomp
+\end{verbatim}
+
+\verb|array_lattice.ml| implements the lattice we use to represent symbolic ranges.
+
+\verb|array_analysis.ml| provides the analysis pass to compute the symbolic range lattice for an OCaml program.
+
+\verb|array_optimization.ml| runs the analysis pass and uses the lattice to eliminate bounds checking for arrays.
+
+\verb|testsuite/opticomp| is the directory which contains tests demonstrating the optimization.
+
+\subsection{Running the Compiler}
+
+After unpacking the source code, you can build the compiler by going to the directory the compiler was extracted to, and running the following script:
+
+\begin{verbatim}
+./opticomp.sh
+\end{verbatim}
+
+Once executed, the script will create the compiler binaries and place them to the current directory. The binary of particular interest is \verb|./ocamlopt|, the native-code compiler.
+
+Our passes are not enabled by default. You may enable the passes via the \verb|-opticomp-enable| flag. For instance, you can compile the \verb|array_simple.ml| test with array optimizations enabled with the following command:
+
+\begin{verbatim}
+TEST="testsuite/opticomp/array_simple.ml"
+./ocamlopt -opticomp-enable $TEST
+\end{verbatim}
+
+You can also display the lattice and the intermediate representation code via the following command:
+
+\begin{verbatim}
+TEST="testsuite/opticomp/array_simple.ml"
+./ocamlopt -dflambda -opticomp-enable -display-lattice $TEST
+\end{verbatim}
+
+\section{Lattice Design}
+
+Jacob do me
+
+\section{Benchmarks}
+
+Sinan do me
+
+\section{Conclusions}
+
+good
+
+\subsection{Future Work}
+
+no
+
+\section{Bibliography}
+
+books
+
+\end{document}
