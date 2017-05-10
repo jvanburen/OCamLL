@@ -51,9 +51,6 @@ let can_eliminate_bound_check (lattice : Lattice.t)
   Format.pp_print_flush Format.std_formatter ();
   print_newline();
   match (Lattice.getVar_top arr lattice, Lattice.getVar_top idx lattice) with
-  | (ArrayOfLength arrInfo, ArrayOfLength idxInfo)
-  | (ArrayOfLength arrInfo, ScalarInfo idxInfo)
-  | (ScalarInfo arrInfo, ArrayOfLength idxInfo)
   | (ScalarInfo arrInfo, ScalarInfo idxInfo) ->
       print_string "Got some info~~~\n";
       Lattice.print Format.std_formatter lattice;

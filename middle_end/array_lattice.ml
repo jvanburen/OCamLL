@@ -213,7 +213,6 @@ type lattice = latticeVarInfo keyMap
 and latticeVarInfo =
   | BoolInfo of boolConstraints
   | ScalarInfo of ScalarConstraint.t
-  | ArrayOfLength of ScalarConstraint.t (* Jacob TODO-now: Collapse this w/ ScalarInfo? Might add logic errors to do so. *)
   | Anything (* Top, used when we can't analyze something at all *)
 and boolConstraints = { ifTrue: lattice; ifFalse: lattice; }
 (* boolConstraints is a Map from variable value to constraints *)
@@ -249,11 +248,6 @@ struct
           print ppf boolInfo.ifFalse;
           pp_close_box ppf () )
       | ScalarInfo sc -> SC.print ppf sc
-      | ArrayOfLength sc -> (pp_open_hbox ppf ();
-                             pp_print_string ppf "ArrayOfLength";
-                             pp_print_space ppf ();
-                             SC.print ppf sc;
-                             pp_close_box ppf () )
       );
       pp_print_string ppf ")";
       pp_close_box ppf ();
@@ -296,7 +290,6 @@ struct
                                       ifFalse = join aa.ifFalse bb.ifFalse;
                                     }
     | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.join aa bb)
-    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (SC.join aa bb)
     | _ -> raise TypeMismatch
 
   let rec meet a b =
@@ -316,7 +309,6 @@ struct
                                       ifFalse = meet aa.ifFalse bb.ifFalse;
                                     }
     | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.meet aa bb)
-    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (SC.meet aa bb)
     | _ -> raise TypeMismatch
 
 
@@ -355,7 +347,6 @@ struct
           ifFalse = combineLattices_shallow aa.ifFalse bb.ifFalse;
         }
     | (ScalarInfo aa, ScalarInfo bb) -> ScalarInfo (SC.meet aa bb)
-    | (ArrayOfLength aa, ArrayOfLength bb) -> ArrayOfLength (SC.meet aa bb)
     | _ -> raise TypeMismatch
   and combineLattices_shallow (s1 : t) (s2 : t) : t =
     KeyMap.union_merge combineVarInfo_shallow s1 s2
@@ -373,7 +364,6 @@ struct
     match (a, b) with
     | (BoolInfo a, BoolInfo b) -> boolInfoEq a b
     | (ScalarInfo a, ScalarInfo b) -> ScalarConstraint.eq a b
-    | (ArrayOfLength a, ArrayOfLength b) -> ScalarConstraint.eq a b
     | (Anything, Anything) -> true
     | _ -> false
   and boolInfoEq a b =
@@ -381,16 +371,6 @@ struct
   and latticeEq a b = KeyMap.equal varInfoEq a b
 
   let computeClosure (sigma : t) : t =
-    let optMap f valOpt =
-        match valOpt with
-        | Some x -> Some (f x)
-        | None -> None
-    in
-    let getSC (v : varInfo) : SC.t option =
-      match v with
-        ScalarInfo sc | ArrayOfLength sc -> Some sc
-      | _ -> None
-    in
     let addRangeToSC ((lb, ub) : int64 option * int64 option)
                      (sc : SC.t) : SC.t =
         {ub=(match ub with
@@ -405,7 +385,10 @@ struct
       (* Takes a key -> SC mapping and turns it into a lattice of additional constraints *)
       (* it promotes a scalarconstraint to a lattice *)
       (* derives additional information from inequalities *)
-      let flip = optMap Int64.neg in
+      let flip x = match x with
+                   | Some x -> Some (Int64.neg x)
+                   | None -> None
+      in
       let f _ lb ub =
          (* adds, then join. yes, we're intentionally flipping + negating lb and ub *)
         Some (ScalarInfo (addRangeToSC (flip ub, flip lb) (SC.of_key k)))
@@ -415,25 +398,27 @@ struct
     let flattenSC (sigma : t) (sc : SC.t) : SC.t =
       (* Takes a key -> SC mapping and expands the scalarconstraints to moar lattice info. *)
       let f k lb ub =
-        let scNew = getSC (getKey_exn k sigma) in
-        optMap (addRangeToSC (lb, ub)) scNew
+        match getKey_exn k sigma with
+        | ScalarInfo sc -> Some (addRangeToSC (lb, ub) sc)
+        | _ -> None
       in
       let (eachFlattened : SC.t KeyMap.t) = KeyMap.merge f sc.lb sc.ub in
       KeyMap.fold (fun (_ : Key.t) -> SC.meet) eachFlattened SC.top
     in
     let deriveIneqs (k : Key.t) (v : varInfo) (acc : t) : t =
-      match getSC v with
-      | Some sc -> combineLattices_shallow (getSCLattice k sc) acc
-      | None -> acc (* probably no need to go into it this far... *)
+      match v with
+      | ScalarInfo sc -> combineLattices_shallow (getSCLattice k sc) acc
+      | _ -> acc (* probably no need to go into it this far... *)
     in
     let propagateInfo (sigma : t) (v : varInfo) : varInfo =
-      match getSC v with
-      | Some sc -> ScalarInfo (flattenSC sigma sc)
-      | None -> v
+      match v with
+      | ScalarInfo sc -> ScalarInfo (flattenSC sigma sc)
+      | _ -> v
     in
     let rec repeat_until_fixed last =
       let mid = KeyMap.fold deriveIneqs last last in
       let next = KeyMap.map (propagateInfo mid) mid in
+      let next = combineLattices_shallow mid next in
       let _ = (
         debug_println "repeat_until_fixed:";
         debug_println "last:";
@@ -478,6 +463,7 @@ struct
     | Some (BoolInfo boolInfo) -> applyBoolInfo boolInfo sigma
     | _ -> { ifTrue = sigma; ifFalse = sigma; }
 
+  (* let  *)
 
 end
 module L = Lattice

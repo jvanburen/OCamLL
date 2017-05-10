@@ -173,7 +173,6 @@ and add_constraints_named (letBound : Variable.t)
        (* Ensure we're only looking at the length of a single array. *)
        | (Lambda.Parraylength _, [var]) ->
           (match Lattice.getVar_top var sigma with
-          | ArrayOfLength sc -> ScalarInfo sc
           | ScalarInfo sc -> ScalarInfo sc (* It's not a very type-safe lattice... *)
           | Anything -> ScalarInfo SC.nonnegative
           | BoolInfo _ -> raise TypeMismatch (* Nevertheless, this should never happen *)
@@ -181,7 +180,7 @@ and add_constraints_named (letBound : Variable.t)
        | (Lambda.Pintcomp comparison, [left; right]) ->
             get_comparison_info sigma comparison left right
 (*        | (Lambda.Psubint, [left; right]) ->
-            get_comparison_info sigma comparison left right *)
+            do_arithmetic sigma comparison left right *)
        | (Lambda.Pccall desc, _) ->
           (match (desc.Primitive.prim_name, vars) with
            | ("caml_make_vect", [len; _]) ->
@@ -264,4 +263,5 @@ and get_comparison_info (sigma : Lattice.t)
   | Lambda.Cneq -> b{ifTrue = Lattice.bot;
                      ifFalse = mapFromTwo (mkEQ left right, mkEQ right left)}
 (* and do_arithmetic (kind : arith_kind) (left : Variable.t) (right : Variable.t) =
-  match () *)
+  match ()
+ *)
