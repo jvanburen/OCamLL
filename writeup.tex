@@ -14,7 +14,7 @@
 \pagestyle{fancy}
 
 \title{Symbolic Range Analysis For Arrays In OCaml}
-\date{May 09, 2017}
+\date{May 9, 2017}
 \author{Jacob Van Buren, Sinan Cepel \\ \{jvanbure, scepel\}@andrew.cmu.edu}
 
 \begin{document}
@@ -88,17 +88,38 @@ TEST="testsuite/opticomp/array_simple.ml"
 
 Jacob do me
 
+\section{Optimizing Array Accesses}
+
+An array access in OCaml involves two variables, an array $A$ and an index $i$. We only optimize when we have scalar information about both $A$ and $i$ - call the lower bound of $A$'s length $L_A$, the lower bound of $i$ $L_i$, and the upper bound of $i$ $U_i$. We optimize an array access if the index variable is both non-negative and statically proven to be less than the length of the array.
+
+$i$ is non-negative if $0$ is a key for $L_i$ and the lower bound offset of $L_i[0]$ is non-negative. $i$ is bounded above by the array if there exists a key $k$ such that $k \in U_i$ and $k \in L_A$, with $L_A[k] > U_i[k]$. Intuitively, if we know that $i$'s upper bound is less than the length of $A$ with respect to any symbol, $i$ must be less than the length, and therefore can optimize.
+
+
 \section{Benchmarks}
 
 Sinan do me
 
 \section{Conclusions}
 
-good
+
 
 \subsection{Future Work}
 
-no
+The analysis is easily adaptable to strings, which have semantics similar to
+arrays for access and operations. 
+
+The current incarnation of our lattice computes the transitive closure of
+variable information for each variable, which slows compile times down considerably.
+An implementation with a transfer function that propagates variable information would
+improve the runtime of the pass.
+
+Currently, the analysis only handles arithmetic where at least one of the operands is
+a constant, or can be statically analyzed to be a constant. A generalization of our
+lattice could handle additions of ranges, by having offsets which are also ranges.
+
+We do not currently hoist checks out of loops. A generalization of the array bounds optimization
+could split for loops into ranges where the index variable is statically known to be in bounds and
+out of bounds, and optimize the range where the index is in bounds.
 
 \section{Bibliography}
 
