@@ -35,38 +35,57 @@ exception PrimArity
   TODO-Someday: check for physical equality before creating a new node
       (important GC speed optimization)
  *)
-(* If lattice[elem] = ScalarInfo {x -> [0, 0]}, returns Some x. 
+(* If lattice[elem] = ScalarInfo {x -> [0, 0]}, returns Some x.
  * Otherwise, returns None. *)
 (* let getSingleScalarConstraint elem lattice =
   match Lattice.getVar_top elem lattice with
-  | ScalarInfo si -> 
-  | 
+  | ScalarInfo si ->
+  |
 *)
 let can_eliminate_bound_check (lattice : Lattice.t)
                               (arr : Variable.t)
                               (idx : Variable.t) : bool =
-  print_string "Attempting to eliminate bound check for ";
-  print_string (Variable.unique_name arr);
-  print_string "\n";
-  print_string (Variable.unique_name idx);
-  print_string "\n";
+  print_string ("Attempting to eliminate bound check for " ^ Variable.unique_name arr);
+  print_newline();
+  print_string (", " ^ Variable.unique_name idx);
+  Format.pp_print_flush Format.std_formatter ();
+  print_newline();
   match (Lattice.getVar_top arr lattice, Lattice.getVar_top idx lattice) with
+  | (ArrayOfLength arrInfo, ArrayOfLength idxInfo)
+  | (ArrayOfLength arrInfo, ScalarInfo idxInfo)
+  | (ScalarInfo arrInfo, ArrayOfLength idxInfo)
   | (ScalarInfo arrInfo, ScalarInfo idxInfo) ->
-     print_string "Got some info~~~\n";
-     Lattice.print Format.std_formatter lattice;
-     Format.pp_print_flush Format.std_formatter ();
-     print_newline();
-     let greaterThanZero =
-       Key.Map.mem Key.Zero idxInfo.lb &&
-         (Key.Map.find Key.Zero idxInfo.lb) >= 0L in
-     (* TODO: Make this general *)
-     let idxLtArrAtKey key ub =
-       (try (ub < Key.Map.find key arrInfo.lb) with Not_found -> false) in
-     let idxLtArr = try (Key.Map.exists idxLtArrAtKey idxInfo.ub) with _ -> raise (Failure "noo")  in
-     print_string ("Result: " ^ (string_of_bool (greaterThanZero && idxLtArr)) ^ "\n");
-     greaterThanZero && idxLtArr
-  | _ -> let _ = print_string ("Result: false\n") in false
-  
+      print_string "Got some info~~~\n";
+      Lattice.print Format.std_formatter lattice;
+      Format.pp_print_flush Format.std_formatter ();
+      print_newline();
+      let greaterThanZero = try Key.Map.find Key.Zero idxInfo.lb >= 0L
+                            with Not_found -> (Lattice.debug_println "zero not found in Lb...";false)
+      in
+      let _ = if not greaterThanZero then
+        Lattice.debug_println "not >= 0"
+        else () in
+      let cmp _ ub lb =
+        match (ub, lb) with
+        | (Some ub, Some lb) -> if ub < lb then Some () else None
+        | _ -> None
+      in
+      let cmps = Key.Map.merge cmp idxInfo.ub arrInfo.lb in
+      let idxLtArr = not (Key.Map.is_empty cmps) in
+      let _ = if not idxLtArr then (
+        Lattice.debug_println "idxInfo:";
+        SC.print Format.std_formatter idxInfo;
+        print_newline();
+        Lattice.debug_println "arrInfo:";
+        SC.print Format.std_formatter arrInfo;
+        Format.pp_print_flush Format.std_formatter ();
+        print_newline();
+        Lattice.debug_println "not < arrlen")
+        else () in
+      print_string ("Result: " ^ (string_of_bool (greaterThanZero && idxLtArr)) ^ "\n");
+      greaterThanZero && idxLtArr
+  | _ -> (print_string ("Result: false\n"); false)
+
 let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) : Flambda.t =
   match expr with
   | Flambda.Var _ -> expr
@@ -96,19 +115,6 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) : Flambda.t =
   | Flambda.For {Flambda.bound_var; Flambda.from_value;
                  Flambda.to_value; Flambda.direction;
                  Flambda.body} ->
-     let createConstraint low hi =
-       match (Lattice.getKey_opt (Key.of_var low) lattice,
-              Lattice.getKey_opt (Key.of_var hi) lattice) with
-       | (Some (ScalarInfo {lb=lbLow;}),
-          Some (ScalarInfo {ub=ubHi;})) ->
-          ScalarInfo {lb=lbLow; ub=ubHi}
-       | _ -> Anything
-     in
-     let bound_info = (match direction with
-                      | Asttypes.Downto -> createConstraint to_value from_value
-                      | Asttypes.Upto -> createConstraint from_value to_value)
-     in
-     let lattice = Lattice.updateVar bound_var bound_info lattice in
      Flambda.For {bound_var; from_value; to_value; direction;
                   Flambda.body = optimize_array lattice body}
   | Flambda.Proved_unreachable -> expr
@@ -228,7 +234,8 @@ let rec analyze_program_body (program_body : Flambda.program_body)
 
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
-  then let sigma = analyze_program_body program.Flambda.program_body Lattice.bot in 
+  then let sigma = analyze_program_body program.Flambda.program_body Lattice.bot in
+       let _ = Lattice.debug_println "beginning:" in
        let sigma = Lattice.computeClosure sigma in
        Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:(optimize_array sigma)
   else program

@@ -1,4 +1,4 @@
-let () =
-  let a = Array.make 5 0 in
-  let i = 0 in
-  if i < Array.length a then Array.set a i 1 else ()                       
+let f a =
+  if 0 < Array.length a
+    then Array.set a 0 1
+    else ()

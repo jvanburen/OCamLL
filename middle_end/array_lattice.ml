@@ -198,8 +198,8 @@ struct
       pp_print_space ppf ();
       None (* We're using the merge function, so whatever *)
     ) in (
-      pp_open_hvbox ppf 2;
-      pp_print_string ppf "ScalarConstraints{";
+      pp_open_hovbox ppf 2;
+      pp_print_string ppf "SC{";
       pp_print_space ppf ();
       ignore (Key.Map.merge print_entry sc.lb sc.ub);
       pp_print_cut ppf ();
@@ -240,12 +240,12 @@ struct
           pp_open_hvbox ppf 2;
           pp_print_string ppf "BoolInfo{";
           pp_print_cut ppf ();
-          pp_print_string ppf "T->";
-          pp_print_break ppf 1 3;
+          pp_print_string ppf "T ->";
+          pp_print_space ppf ();
           print ppf boolInfo.ifTrue;
           pp_print_space ppf ();
-          pp_print_string ppf "F->";
-          pp_print_break ppf 1 3;
+          pp_print_string ppf "F ->";
+          pp_print_space ppf ();
           print ppf boolInfo.ifFalse;
           pp_close_box ppf () )
       | ScalarInfo sc -> SC.print ppf sc
@@ -333,7 +333,7 @@ struct
     match getKey_opt (K.of_var v) sigma with
     | Some x -> x
     | None -> Anything
-                
+
   let getSymField_top sym sigma =
     match getKey_opt (K.of_sym sym) sigma with
     | Some x -> x
@@ -369,7 +369,7 @@ struct
       | (_, None) -> None
     in
     KeyMap.merge mergeRight first second *)
-  let rec latticeVarInfoEq a b =
+  let rec varInfoEq a b =
     match (a, b) with
     | (BoolInfo a, BoolInfo b) -> boolInfoEq a b
     | (ScalarInfo a, ScalarInfo b) -> ScalarConstraint.eq a b
@@ -378,61 +378,74 @@ struct
     | _ -> false
   and boolInfoEq a b =
     latticeEq a.ifTrue b.ifTrue && latticeEq a.ifFalse b.ifFalse
-  and latticeEq a b = KeyMap.equal latticeVarInfoEq a b
+  and latticeEq a b = KeyMap.equal varInfoEq a b
+
   let computeClosure (sigma : t) : t =
-    let addReverseRangeToSC ((lb, ub): int64 option * int64 option)
-                        (sc : SC.t) : SC.t =
-      (* adds, then join. yes, we're intentionally flipping lb and ub *)
-      {lb=(match ub with
-          | Some ub -> LB.plus_constant (Int64.neg ub) sc.lb
-          | None -> LB.top);
-       ub=(match lb with
-          | Some lb -> UB.plus_constant (Int64.neg lb) sc.ub
-          | None -> UB.top)
-      }
+    let optMap f valOpt =
+        match valOpt with
+        | Some x -> Some (f x)
+        | None -> None
     in
-    let getSCLattice (sc : SC.t) : t =
+    let getSC (v : varInfo) : SC.t option =
+      match v with
+        ScalarInfo sc | ArrayOfLength sc -> Some sc
+      | _ -> None
+    in
+    let addRangeToSC ((lb, ub) : int64 option * int64 option)
+                     (sc : SC.t) : SC.t =
+        {ub=(match ub with
+            | Some ub -> UB.plus_constant ub sc.ub
+            | None -> UB.top);
+         lb=(match lb with
+            | Some lb -> LB.plus_constant lb sc.lb
+            | None -> LB.top)
+        }
+    in
+    let getSCLattice (k : Key.t) (sc : SC.t) : t =
       (* Takes a key -> SC mapping and turns it into a lattice of additional constraints *)
       (* it promotes a scalarconstraint to a lattice *)
-      let f _ lb ub = Some (ScalarInfo (addReverseRangeToSC (lb, ub) sc))
-        (* turns a single constraint x -> [xlo, xhi] into a scalarconstraint *)
+      (* derives additional information from inequalities *)
+      let flip = optMap Int64.neg in
+      let f _ lb ub =
+         (* adds, then join. yes, we're intentionally flipping + negating lb and ub *)
+        Some (ScalarInfo (addRangeToSC (flip ub, flip lb) (SC.of_key k)))
       in
       KeyMap.merge f sc.lb sc.ub
     in
-    let accumVarInfo (_ : Key.t) (v : varInfo) (acc : t) : t =
-      match v with
-      | ScalarInfo sc
-      | ArrayOfLength sc ->
-        combineLattices_shallow (getSCLattice sc) acc
-      | _ -> acc (* probably no need to go into it this far... *)
+    let flattenSC (sigma : t) (sc : SC.t) : SC.t =
+      (* Takes a key -> SC mapping and expands the scalarconstraints to moar lattice info. *)
+      let f k lb ub =
+        let scNew = getSC (getKey_exn k sigma) in
+        optMap (addRangeToSC (lb, ub)) scNew
+      in
+      let (eachFlattened : SC.t KeyMap.t) = KeyMap.merge f sc.lb sc.ub in
+      KeyMap.fold (fun (_ : Key.t) -> SC.meet) eachFlattened SC.top
     in
-    let expandVariables (key : Key.t) (v : varInfo) (acc : t) : t =
-      match v with
-      | ScalarInfo sc
-      | ArrayOfLength sc ->
-         (* Merge to keep things of the form x + [0, 0] *)
-         let mergeBounds k a b =
-           (match (a, b) with 
-            | (Some i, Some j) ->
-               (* We only want to keep variable information. *)
-               if i = 0L && (j = 0L && k <> Key.Zero) then getKey_opt k acc else None
-            | _ -> None) in
-         let newBounds = Key.Map.merge mergeBounds sc.ub sc.lb in
-         let foldFun (_ : Key.t) (newInfo : latticeVarInfo) (sigma : lattice) =
-             updateKey key (combineVarInfo_shallow v newInfo) sigma in
-         Key.Map.fold foldFun newBounds acc
-      | _ -> acc
+    let deriveIneqs (k : Key.t) (v : varInfo) (acc : t) : t =
+      match getSC v with
+      | Some sc -> combineLattices_shallow (getSCLattice k sc) acc
+      | None -> acc (* probably no need to go into it this far... *)
+    in
+    let propagateInfo (sigma : t) (v : varInfo) : varInfo =
+      match getSC v with
+      | Some sc -> ScalarInfo (flattenSC sigma sc)
+      | None -> v
     in
     let rec repeat_until_fixed last =
-      let next = KeyMap.fold accumVarInfo last last in
-      let next = KeyMap.fold expandVariables next next in
-      let _ = debug_println "computing fixed point again" in
+      let mid = KeyMap.fold deriveIneqs last last in
+      let next = KeyMap.map (propagateInfo mid) mid in
+      let _ = (
+        debug_println "repeat_until_fixed:";
+        debug_println "last:";
+        dump last;
+        debug_println "mid:";
+        dump mid;
+        debug_println "next:";
+        dump next)
+      in
       if latticeEq last next
       then last
-      else (debug_println "Repeating:";
-            dump next;
-            dump last;
-            repeat_until_fixed next)
+      else repeat_until_fixed next
     in
     let withoutZero = KeyMap.remove Key.Zero (repeat_until_fixed sigma) in
     (debug_println "Done";
@@ -455,12 +468,10 @@ struct
 
 
   let applyBoolInfo (boolInfo : boolConstraints) (sigma : t) : boolConstraints =
-    let result =
       fmapBoolConstraints computeClosure
       { ifTrue = combineLattices_shallow sigma boolInfo.ifTrue;
         ifFalse = combineLattices_shallow sigma boolInfo.ifFalse;
-      } in
-    result
+      }
 
   let computeBoolInfo (k : Key.t) (sigma : t) : boolConstraints =
     match getKey_opt k sigma with
