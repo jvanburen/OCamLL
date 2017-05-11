@@ -441,27 +441,12 @@ struct
       let mid = KeyMap.fold deriveIneqs last last in
       let next = KeyMap.map (propagateInfo mid) mid in
       let next = combineLattices_shallow mid next in
-      let _ = (
-        debug_println "repeat_until_fixed:";
-        debug_println "last:";
-        dump last;
-        debug_println "mid:";
-        dump mid;
-        debug_println "next:";
-        dump next)
-      in
       if latticeEq last next
       then last
       else repeat_until_fixed next
     in
     let withoutZero = KeyMap.remove Key.Zero (repeat_until_fixed sigma) in
-    (debug_println "Done";
-     debug_println "Computing closure before:";
-     dump sigma;
-     debug_println "Computing closure after:";
-     dump withoutZero;
-     withoutZero
-    )
+    withoutZero
 
   let addFreeVars (vars : Variable.Set.t) (sigma : t) : t =
     let addvar var s =
@@ -514,15 +499,6 @@ struct
       let sc2 = negateSC sc2 in
       let x = SC.addRange (SC.get_bounds Key.Zero sc1) sc2 in
       let y = SC.addRange (SC.get_bounds Key.Zero sc2) sc1 in
-      let _ = (
-        debug_println "Subtracting:";
-        SC.print Format.std_formatter sc1;
-        debug_println "and:";
-        SC.print Format.std_formatter sc1;
-        debug_println "to get:";
-        SC.print Format.std_formatter (SC.join x y);
-        debug_println "mmkay?";
-      ) in
       ScalarInfo (SC.join x y)
     | _ -> Anything
 

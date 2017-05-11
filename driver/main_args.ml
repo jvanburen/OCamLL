@@ -627,8 +627,12 @@ let mk_drawflambda f =
 ;;
 
 let mk_opticomp_enable f =
-  "-opticomp-enable", Arg.Unit f, " Opticomp roll out"
+  "-opticomp-enable", Arg.Unit f, "Enable array bounds check elimination"
 ;; 
+
+let mk_display_lattice f =
+  "-display-lattice", Arg.Unit f, "Display lattice for bonuds check elimination"
+;;
 let mk_dflambda_no_invariants f =
   "-dflambda-no-invariants", Arg.Unit f, " Do not Check Flambda invariants \
       around each pass"
@@ -882,6 +886,7 @@ module type Optcommon_options = sig
   val _dflambda : unit -> unit
   val _drawflambda : unit -> unit
   val _opticomp_enable : unit -> unit
+  val _display_lattice : unit -> unit
   val _dflambda_no_invariants : unit -> unit
   val _dflambda_let : int -> unit
   val _dflambda_verbose : unit -> unit
@@ -1200,6 +1205,7 @@ struct
     mk_dflambda F._dflambda;
     mk_drawflambda F._drawflambda;
     mk_opticomp_enable F._opticomp_enable;
+    mk_display_lattice F._display_lattice;
     mk_dflambda_no_invariants F._dflambda_no_invariants;
     mk_dflambda_let F._dflambda_let;
     mk_dflambda_verbose F._dflambda_verbose;
@@ -1296,6 +1302,7 @@ module Make_opttop_options (F : Opttop_options) = struct
     mk_dclambda F._dclambda;
     mk_drawflambda F._drawflambda;
     mk_opticomp_enable F._opticomp_enable;
+    mk_display_lattice F._display_lattice;
     mk_dflambda F._dflambda;
     mk_dcmm F._dcmm;
     mk_dsel F._dsel;

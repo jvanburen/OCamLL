@@ -56,7 +56,6 @@ let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
   (match flam with
   | Flambda.Var v -> (sigma, Lattice.getVar_top v sigma)
   | Flambda.Let {Flambda.var; Flambda.defining_expr; Flambda.body; _} ->
-    let _ = print_string ("In a let with variable " ^ (Variable.unique_name var) ^ "\n") in
     let (in_lattice, deInfo) = add_c_named var sigma defining_expr in
     let out_lattice = Lattice.updateVar var deInfo in_lattice in
     add_c out_lattice body
@@ -200,9 +199,7 @@ and add_constraints_named (letBound : Variable.t)
        | (Lambda.Psubint, [left; right]) -> Lattice.sub_vars sigma left right
        | (Lambda.Pccall desc, _) ->
           (match (desc.Primitive.prim_name, vars) with
-           | ("caml_make_vect", [len; _]) ->
-              let _ = print_string ("Primitive:\n" ^ desc.Primitive.prim_name) in
-              ScalarInfo (SC.of_var len)
+           | ("caml_make_vect", [len; _]) -> ScalarInfo (SC.of_var len)
            | _ -> ScalarInfo (SC.of_var letBound))
        | _ -> Anything
       )
@@ -213,14 +210,6 @@ and get_comparison_info (sigma : Lattice.t)
                         (leftVar : Variable.t)
                         (rightVar : Variable.t) =
   (* TODO: check for Anything *)
-  print_string "Checking comparison info\n";
-  Lattice.print Format.std_formatter sigma;
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline ();
-  print_string (Variable.unique_name leftVar);
-  print_newline ();
-  print_string (Variable.unique_name rightVar);
-  print_newline ();
   let minUB a b = SC.of_upper_bound (UB.meet a.ub b.ub) in
   let maxLB a b = SC.of_lower_bound (LB.meet a.lb b.lb) in
   let exclusiveUB b = SC.plus_constant Int64.minus_one b in
@@ -240,31 +229,6 @@ and get_comparison_info (sigma : Lattice.t)
   let right = match Lattice.getVar_top rightVar sigma with
              | ScalarInfo x -> x
              | _ -> raise (Impossible "get_comparison_info:right") in
-  print_string "Left:\n";
-  SC.print Format.std_formatter left;
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline ();
-  print_string "Right:\n";
-  SC.print Format.std_formatter right;
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline ();
-  print_string "\n";
-  let eub = exclusiveUB right in
-  let ltInfo = minUB left (exclusiveUB right) in
-  let meetInfo = SC.meet ltInfo left in
-  SC.print Format.std_formatter eub;
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline ();
-  SC.print Format.std_formatter ltInfo;
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline ();
-  SC.print Format.std_formatter meetInfo;
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline ();
-  let ltMap = mapFromTwo (mkLT left right, mkGT right left) in
-  Lattice.print Format.std_formatter ltMap;
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline ();
   let b x = BoolInfo x in
   match comparison with
   | Lambda.Clt -> b{ifTrue = mapFromTwo  (mkLT left right, mkGT right left);

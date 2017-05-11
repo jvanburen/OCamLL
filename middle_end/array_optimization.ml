@@ -45,17 +45,8 @@ exception PrimArity
 let can_eliminate_bound_check (lattice : Lattice.t)
                               (arr : Variable.t)
                               (idx : Variable.t) : bool =
-  print_string ("Attempting to eliminate bound check for " ^ Variable.unique_name arr);
-  print_newline();
-  print_string (", " ^ Variable.unique_name idx);
-  Format.pp_print_flush Format.std_formatter ();
-  print_newline();
   match (Lattice.getVar_top arr lattice, Lattice.getVar_top idx lattice) with
   | (ScalarInfo arrInfo, ScalarInfo idxInfo) ->
-      print_string "Got some info~~~\n";
-      Lattice.print Format.std_formatter lattice;
-      Format.pp_print_flush Format.std_formatter ();
-      print_newline();
       let greaterThanZero = try Key.Map.find Key.Zero idxInfo.lb >= 0L
                             with Not_found -> (Lattice.debug_println "zero not found in Lb...";false)
       in
@@ -69,16 +60,6 @@ let can_eliminate_bound_check (lattice : Lattice.t)
       in
       let cmps = Key.Map.merge cmp idxInfo.ub arrInfo.lb in
       let idxLtArr = not (Key.Map.is_empty cmps) in
-      let _ = if not idxLtArr then (
-        Lattice.debug_println "idxInfo:";
-        SC.print Format.std_formatter idxInfo;
-        print_newline();
-        Lattice.debug_println "arrInfo:";
-        SC.print Format.std_formatter arrInfo;
-        Format.pp_print_flush Format.std_formatter ();
-        print_newline();
-        Lattice.debug_println "not < arrlen")
-        else () in
       print_string ("Result: " ^ (string_of_bool (greaterThanZero && idxLtArr)) ^ "\n");
       greaterThanZero && idxLtArr
   | _ -> (print_string ("Result: false\n"); false)
@@ -141,17 +122,12 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
   | Flambda.Prim (prim, vars, di) ->
      (match prim with
      | Lambda.Parrayrefs arr_kind ->
-        let _ = print_string "Got an array reference\n" in
         (match vars with
          | [arr; idx] -> if can_eliminate_bound_check lattice arr idx
                          then Flambda.Prim (Lambda.Parrayrefu arr_kind, vars, di)
                          else Flambda.Prim (Lambda.Parrayrefs arr_kind, vars, di)
          | _ -> raise PrimArity)
      | Lambda.Parraysets arr_kind ->
-        let _ = print_string "Setting an array\n" in
-        let _ = print_string ((string_of_int (List.length vars)) ^
-                                " " ^
-                                  (listToString "" (List.map Variable.unique_name vars)) ^"\n") in
         (match vars with
          | [arr; idx; _] -> if can_eliminate_bound_check lattice arr idx
                             then Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
@@ -162,17 +138,14 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
 (* Oh no, globals! *)
 (* let latticeRef = ref Lattice.bot *)
 
-let analyze_expr (expr : Flambda.t) (sigma : Lattice.t) : (Lattice.t * Lattice.varInfo) = (
+let analyze_expr (expr : Flambda.t) (sigma : Lattice.t) : (Lattice.t * Lattice.varInfo) = 
   let tup = try add_constraints expr sigma
             with ex ->
               (print_string ("Got an exception\n" ^ Printexc.to_string ex);
                Format.print_newline();
                (sigma, Anything)) in
-  (print_string "Lattice is:";
-  Lattice.print Format.std_formatter sigma;
-  Format.print_newline ();
-  tup)
-)
+  tup
+
 
 let rec analyze_program_body (program_body : Flambda.program_body)
                              (sigmaTL : Lattice.t) : Lattice.t =
@@ -235,14 +208,14 @@ let rec analyze_program_body (program_body : Flambda.program_body)
   | Flambda.Effect (expr, program') ->
         let (sigma, _) = analyze_expr expr sigmaTL in
         analyze_program_body program' sigma
-  | Flambda.End _ -> (print_string "end analyze_toplevel_of_program";
-                      print_newline();
-                      sigmaTL)
+  | Flambda.End _ -> sigmaTL
 
 let optimize_array_accesses (program : Flambda.program) : Flambda.program =
   if !Clflags.opticomp_enable
   then let sigma = analyze_program_body program.Flambda.program_body Lattice.bot in
-       let _ = Lattice.debug_println "beginning:" in
        let sigma = Lattice.computeClosure sigma in
+       let _ = if !Clflags.display_lattice
+               then Lattice.print Format.std_formatter sigma
+               else () in
        Flambda_iterators.map_exprs_at_toplevel_of_program program ~f:(optimize_array sigma)
   else program

@@ -139,6 +139,7 @@ module Options = Main_args.Make_opttop_options (struct
   let _dclambda = set dump_clambda
   let _drawflambda = set dump_rawflambda
   let _opticomp_enable = set opticomp_enable
+  let _display_lattice = set display_lattice
   let _dflambda = set dump_flambda
   let _dflambda_let stamp = dump_flambda_let := Some stamp
   let _dflambda_verbose () =

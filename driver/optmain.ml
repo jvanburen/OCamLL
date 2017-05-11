@@ -197,6 +197,7 @@ module Options = Main_args.Make_optcomp_options (struct
   let _dtypedtree = set dump_typedtree
   let _drawlambda = set dump_rawlambda
   let _opticomp_enable = set opticomp_enable
+  let _display_lattice = set display_lattice
   let _dlambda = set dump_lambda
   let _drawclambda = set dump_rawclambda
   let _dclambda = set dump_clambda
