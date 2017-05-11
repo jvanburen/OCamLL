@@ -15,33 +15,32 @@
 \chead{\textbf{15-745}\\ \textbf{Final Report}}
 \pagestyle{fancy}
 
-\title{Symbolic Range Analysis For Arrays In OCaml}
+\title{Symbolic Range Analysis for Arrays in OCaml}
 \date{May 9, 2017}
 \author{Jacob Van Buren, Sinan Cepel \\ \{jvanbure, scepel\}@andrew.cmu.edu}
-
+\nocite{*}
 \begin{document}
 
 \maketitle
 
+\setlength{\headheight}{26pt}
 \section{Introduction}
 
 The OCaml language is a functional programming language with extensive support for imperative features, such as working with mutable references and arrays. There are currently no optimizations for arrays in the OCaml compiler, even though the imperative features of OCaml are most commonly used when performance is a concern.
 
-In order to help solve this problem, our project implements a path-sensitive symbolic range analysis pass in OCaml. We enriched the middle-end of the OCaml compiler by adding two passes - one that analyzes symbolic ranges, and a second pass that eliminates bounds checks for OCaml arrays based on the analysis information.
+In order to help solve this problem, our project implements a path-sensitive symbolic range analysis pass in OCaml. We enriched the middle-end of the OCaml compiler by adding two passes: one that analyzes symbolic ranges, and a second pass that eliminates bounds checks for OCaml arrays based on the analysis information.
 
 \subsection{Infrastructure}
 
-We forked the OCaml compiler, developed by Inria and available as an open-source compiler on Github at \url{https://github.com/ocaml/ocaml}. This optimizing compiler provides a front-end and back-end that allowed us to restrict our attention to the middle-end. We worked with the Flambda intermediate representation which was contributed to the OCaml compiler by Jane Street.
-
-The optimization pass allows idiomatic OCaml code to run up to 40\% faster on CPU-bound tasks, as discussed in the benchmarks section. 
+We forked the OCaml compiler, developed by Inria and available as an open-source compiler on Github at \url{https://github.com/ocaml/ocaml}. This optimizing compiler provides a front-end and back-end that allowed us to restrict our attention to the middle-end. We worked with the Flambda intermediate representation which was contributed to the OCaml compiler by Jane Street. Previous work has indicated that such an optimization could allow idiomatic OCaml code to run up to 40\% faster on CPU-bound tasks\cite{wurthinger2007array}.
 
 \subsection{Distribution of Work}
 
-We have distributed the work evenly, i.e. Sinan and Jacob have both done 50\% of the work. For the most part, we worked on the same part of the codebase simultaneously. However, Jacob was responsible for the final design of the lattice, and Sinan focused more on implementing the actual analysis and optimization passes.
+We have distributed the work evenly, i.e. Sinan and Jacob have both done 50\% of the work. For the most part, we worked on the same part of the codebase simultaneously. However, Jacob was responsible for the final design and implementation of the lattice, while Sinan focused more on implementing the optimization pass and the framework for the analysis pass.
 
 \section{Structure of the Compiler}
 
-All of our modifications to the OCaml compiler were in the \verb|middle_end/| directory.
+All of our modifications to the OCaml compiler source were in the \verb|middle_end/| directory.
 
 The files of interest, assuming that the current working directory is the top-level directory, are
 
@@ -87,7 +86,30 @@ TEST="testsuite/opticomp/array_simple.ml"
 
 \section{Lattice Design}
 
-Jacob do me
+The lattice is the data type we used to model values in the program.
+Our lattice consists of two main parts: scalar information (\verb|ScalarInfo|) and Boolean information (\verb|BoolInfo|).
+
+The basic units of information in our lattice are keys and ranges. Keys are either immutable program variables, program symbols, or the constant 0. Program variables are either free as closure parameters or let-bound inside them.
+Symbols are module-level declarations.
+
+Ranges are inequalities of the form
+$x \in k + [i_{\mathit{lo}}, i_{\mathit{hi}}]$ for a key $k$ and $x$, describing that
+$k + i_{\mathit{lo}} \le x \le k + i_{\mathit{hi}}$.
+In our code they are represented by tuples of the form \verb|(lo, hi) : int64 option * int64 option|.
+A value of \verb|None| on one side indicates that the range is open on that side.
+
+For any key we track in our lattice, an associated \verb|ScalarInfo|s contains a set of ranges bounding it.
+Thus, the key is contained in the intersection of the ranges. As ranges can be relative to other keys, this allows us to, for example, express inequalities about arrays whose length we cannot statically determine, such as inside functions that take arrays as their arguments.
+
+\verb|BoolInfo|s contain two of their own product lattices containing information about ranges if they are true.
+
+Together, they allow us to derive constraints in a path-sensitive manner.
+\section{Efficiency}
+
+The overall lattice representation that we chose seemed to be well-suited for the task. It allows for fast updates, as well as decent amounts of optimizations to be performed.
+An unfortunate design decision was computing the closure of the lattice to derive information instead of keeping the lattice sparse. This greatly affected our compilation times, as computing the closure involves iterating to the fixed point, and increasing the lattice to $\mathrm{O}(n^2)$ in the number of variables tracked. As the lattice tracks an entire compilation unit at once, this leads to quadratic blowup and near-linear updates. A much better solution would have been to use graph search to derive information about keys.
+
+While our lattice is only able to propagate limited range information, in terms of lines of code, it is significantly lighter-weight than a theorem prover as a dependency, as well as being pure OCaml.
 
 \section{Optimizing Array Accesses}
 
@@ -95,8 +117,13 @@ An array access in OCaml involves two variables, an array $A$ and an index $i$. 
 
 $i$ is non-negative if $0$ is a key for $L_i$ and the lower bound offset of $L_i[0]$ is non-negative. $i$ is bounded above by the array if there exists a key $k$ such that $k \in U_i$ and $k \in L_A$, with $L_A[k] > U_i[k]$. Intuitively, if we know that $i$'s upper bound is less than the length of $A$ with respect to any symbol, $i$ must be less than the length, and therefore can optimize.
 
+The analysis was easily adapted to strings, which have semantics similar to
+arrays for accesses and assignments.
+
 
 \section{Evaluation}
+
+% TODO un-bullshit:
 
 We were able to optimize common access patterns in OCaml code, such as iterating through an array via a for loop and creating a second array with the data of a first one, and moving data to it. However, due to time constraints, we were unable to optimize strings and recursive functions, which meant that our testing options were limited.
 
@@ -104,18 +131,20 @@ We were able to optimize common access patterns in OCaml code, such as iterating
 
 In addition to some simple examples, we have included 7 benchmark tests in \verb|testsuite/opticomp/|. The benchmarks were taken from \url{http://benchmarksgame.alioth.debian.org/u64q/measurements.php?lang=ocaml}, a website which contains a standardized set of toy problems to benchmark performance for different languages.
 
+Only one benchmark underwent statistically significant improvement in performance compared to the native OCaml compiler.
+
 \subsection{Practical Improvements}
 
-Empirically, a high amount of practical improvements would be possible by exploiting laws in the array and string libraries. We restricted our attention to simple variables, but being aware of, say, two arrays being concatenated or a character code being an ASCII value between 0 and 255 would allow significant optimizatios, especially in the benchmarks below. Adding this information to the pass would get us very close to the theoretical (unsafe) ceiling.
+Empirically, a high amount of practical improvements would be possible by exploiting laws in the array and string libraries. We restricted our attention to simple variables, but being aware of, say, two arrays being concatenated or a character code being an ASCII value between 0 and 255 would allow significant optimizations, especially in the benchmarks below. Adding this information to the pass would get us very close to the theoretical (unsafe) ceiling.
 
 \section{Conclusions}
 
+Dataflow analysis-based Array bounds
 
+Lack of tracking bounds for mutable variables, as well as a lack of a context-sensitive analysis (for call sites) appears to have contributed significantly towards the lack of optimizations in our benchmarks.
+Idiomatic functional programming code is very function-heavy. Symbolic analysis of function parameters was unable to sufficiently make up for the information lost across call sites. functional control flow analysis, as well as mutable variable analysis would require significantly more work and redesigning how the optimization pass interacted with the analysis pass. It would require a separate lattice for each binding site in the AST, which is a highly non-trivial task given the amount of time available to us.
 
 \subsection{Future Work}
-
-The analysis is easily adaptable to strings, which have semantics similar to
-arrays for access and operations. 
 
 The current incarnation of our lattice computes the transitive closure of
 variable information for each variable, which slows compile times down considerably.
