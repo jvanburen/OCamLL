@@ -194,7 +194,8 @@ and add_constraints_named (letBound : Variable.t)
           | BoolInfo _ -> raise TypeMismatch (* Nevertheless, this should never happen *)
           )
        | (Lambda.Pintcomp comparison, [left; right]) ->
-            get_comparison_info sigma comparison left right
+          (try get_comparison_info sigma comparison left right
+           with (Impossible _) -> Anything)
        | (Lambda.Paddint, [left; right]) -> Lattice.add_vars sigma left right
        | (Lambda.Psubint, [left; right]) -> Lattice.sub_vars sigma left right
        | (Lambda.Pccall desc, _) ->

@@ -139,13 +139,7 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
 (* let latticeRef = ref Lattice.bot *)
 
 let analyze_expr (expr : Flambda.t) (sigma : Lattice.t) : (Lattice.t * Lattice.varInfo) = 
-  let tup = try add_constraints expr sigma
-            with ex ->
-              (print_string ("Got an exception\n" ^ Printexc.to_string ex);
-               Format.print_newline();
-               (sigma, Anything)) in
-  tup
-
+  add_constraints expr sigma
 
 let rec analyze_program_body (program_body : Flambda.program_body)
                              (sigmaTL : Lattice.t) : Lattice.t =
