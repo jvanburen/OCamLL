@@ -374,3 +374,6 @@ OPTICOMP_CONFIGURED
 CONFIGURED
 CONFIGURED_OPTICOMP
 config
+Output
+writeup.pdf
+*.synctex.gz

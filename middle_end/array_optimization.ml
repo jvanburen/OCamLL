@@ -125,20 +125,38 @@ and optimize_array_named (lattice : Lattice.t) (named : Flambda.named) = (
         (match vars with
          | [arr; idx] -> if can_eliminate_bound_check lattice arr idx
                          then Flambda.Prim (Lambda.Parrayrefu arr_kind, vars, di)
-                         else Flambda.Prim (Lambda.Parrayrefs arr_kind, vars, di)
+                         else named
          | _ -> raise PrimArity)
      | Lambda.Parraysets arr_kind ->
         (match vars with
          | [arr; idx; _] -> if can_eliminate_bound_check lattice arr idx
                             then Flambda.Prim (Lambda.Parraysetu arr_kind, vars, di)
-                            else Flambda.Prim (Lambda.Parraysets arr_kind, vars, di)
+                            else named
+         | _ -> raise PrimArity)
+     | Lambda.Pbytesrefs ->
+        (match vars with
+         | [arr; idx] -> if can_eliminate_bound_check lattice arr idx
+                            then Flambda.Prim (Lambda.Pbytesrefu, vars, di)
+                            else named
+         | _ -> raise PrimArity)
+     | Lambda.Pbytessets ->
+        (match vars with
+         | [arr; idx; _] -> if can_eliminate_bound_check lattice arr idx
+                            then Flambda.Prim (Lambda.Pbytessetu, vars, di)
+                            else named
+         | _ -> raise PrimArity)
+     | Lambda.Pstringrefs ->
+        (match vars with
+         | [arr; idx] -> if can_eliminate_bound_check lattice arr idx
+                            then Flambda.Prim (Lambda.Pstringrefu, vars, di)
+                            else named
          | _ -> raise PrimArity)
      | _ -> named)
 )
 (* Oh no, globals! *)
 (* let latticeRef = ref Lattice.bot *)
 
-let analyze_expr (expr : Flambda.t) (sigma : Lattice.t) : (Lattice.t * Lattice.varInfo) = 
+let analyze_expr (expr : Flambda.t) (sigma : Lattice.t) : (Lattice.t * Lattice.varInfo) =
   add_constraints expr sigma
 
 let rec analyze_program_body (program_body : Flambda.program_body)
