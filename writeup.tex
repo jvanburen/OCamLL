@@ -94,10 +94,17 @@ An array access in OCaml involves two variables, an array $A$ and an index $i$. 
 $i$ is non-negative if $0$ is a key for $L_i$ and the lower bound offset of $L_i[0]$ is non-negative. $i$ is bounded above by the array if there exists a key $k$ such that $k \in U_i$ and $k \in L_A$, with $L_A[k] > U_i[k]$. Intuitively, if we know that $i$'s upper bound is less than the length of $A$ with respect to any symbol, $i$ must be less than the length, and therefore can optimize.
 
 
-\section{Benchmarks}
+\section{Evaluation}
 
-In addition to some simple example, we have included 7 benchmark tests in \verb|testsuite/opticomp/|. The benchmarks were taken from \url{http://benchmarksgame.alioth.debian.org/u64q/measurements.php?lang=ocaml}, a website which contains a standardized set of toy problems to benchmark performance for different languages.
+We were able to optimize common access patterns in OCaml code, such as iterating through an array via a for loop and creating a second array with the data of a first one, and moving data to it. However, due to time constraints, we were unable to optimize strings and recursive functions, which meant that our testing options were limited.
 
+\subsection{Benchmarks}
+
+In addition to some simple examples, we have included 7 benchmark tests in \verb|testsuite/opticomp/|. The benchmarks were taken from \url{http://benchmarksgame.alioth.debian.org/u64q/measurements.php?lang=ocaml}, a website which contains a standardized set of toy problems to benchmark performance for different languages.
+
+\subsection{Practical Improvements}
+
+Empirically, a high amount of practical improvements would be possible by exploiting laws in the array and string libraries. We restricted our attention to simple variables, but being aware of, say, two arrays being concatenated or a character code being an ASCII value between 0 and 255 would allow significant optimizatios, especially in the benchmarks below. Adding this information to the pass would get us very close to the theoretical (unsafe) ceiling.
 
 \section{Conclusions}
 
