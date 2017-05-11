@@ -3,10 +3,12 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{lastpage}
 \usepackage{fancyhdr}
+\usepackage[backend=biber]{biblatex}
 \usepackage{tikz}
 \usepackage{amssymb}
 \usepackage{hyperref}
 
+\addbibresource{writeup.bib}
 
 \lhead{Jacob Van Buren, Sinan Cepel\\
 \texttt{jvanbure}, \texttt{scepel}}
@@ -130,6 +132,6 @@ out of bounds, and optimize the range where the index is in bounds.
 
 \section{Bibliography}
 
-books
+\printbibliography
 
 \end{document}
