@@ -25,8 +25,7 @@
 
 The OCaml language is a functional programming language with extensive support for imperative features, such as working with mutable references and arrays. There are currently no optimizations for arrays in the OCaml compiler, even though the imperative features of OCaml are most commonly used when performance is a concern.
 
-In order to help solve this problem, our project implements a symbolic range analysis pass in OCaml. We enriched the middle-end of the OCaml compiler by adding two passes - one that analyzes symbolic ranges, and a second pass that eliminates bounds checks for OCaml arrays based on the analysis information.
-
+In order to help solve this problem, our project implements a path-sensitive symbolic range analysis pass in OCaml. We enriched the middle-end of the OCaml compiler by adding two passes - one that analyzes symbolic ranges, and a second pass that eliminates bounds checks for OCaml arrays based on the analysis information.
 
 \subsection{Infrastructure}
 
