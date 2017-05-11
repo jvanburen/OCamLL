@@ -34,6 +34,8 @@
 exception Impossible of string
 exception TypeMismatch
 
+exception ImpossiblePath
+
 
 let listToString header (list : string list) = header ^ "[" ^ (String.concat ", " list) ^ "]"
 
@@ -159,7 +161,17 @@ struct
   type t = scalarConstraint
   let top = {lb = LB.top; ub = UB.top}
   let join a b = {lb = LB.join a.lb b.lb; ub = UB.join a.ub b.ub}
-  let meet a b = {lb = LB.meet a.lb b.lb; ub = UB.meet a.ub b.ub}
+  let meet a b =
+    let newSC = {lb = LB.meet a.lb b.lb; ub = UB.meet a.ub b.ub} in
+    let check _ lb ub =
+      match (lb, ub) with
+      | (Some lb, Some ub) ->
+        if lb > ub then raise ImpossiblePath else None
+      | _ -> None
+    in
+    ignore (Key.Map.merge check newSC.lb newSC.ub);
+    newSC
+
   let leq a b = (LB.leq a.lb b.lb && UB.leq a.ub b.ub)
 
   let plus_constant (c : int64) (sc : t) : t =
@@ -461,19 +473,26 @@ struct
                           (boolInfo : boolConstraints) : boolConstraints =
     { ifTrue = f boolInfo.ifTrue; ifFalse = f boolInfo.ifFalse; }
 
+(*   let applyBoolInfo (boolInfo : boolConstraints) (sigma : t) : boolConstraints =
+    fmapBoolConstraints computeClosure
+    { ifTrue = combineLattices_shallow sigma boolInfo.ifTrue;
+      ifFalse = combineLattices_shallow sigma boolInfo.ifFalse;
+    } *)
+  let applyBoolInfoTrue (boolInfo : boolConstraints) (sigma : t) : t =
+    computeClosure (combineLattices_shallow sigma boolInfo.ifTrue)
 
-  let applyBoolInfo (boolInfo : boolConstraints) (sigma : t) : boolConstraints =
-      fmapBoolConstraints computeClosure
-      { ifTrue = combineLattices_shallow sigma boolInfo.ifTrue;
-        ifFalse = combineLattices_shallow sigma boolInfo.ifFalse;
-      }
+  let applyBoolInfoFalse (boolInfo : boolConstraints) (sigma : t) : t =
+    computeClosure (combineLattices_shallow sigma boolInfo.ifFalse)
 
-  let computeBoolInfo (k : Key.t) (sigma : t) : boolConstraints =
+  let computeBoolInfoTrue (k : Key.t) (sigma : t) : t =
     match getKey_opt k sigma with
-    | Some (BoolInfo boolInfo) -> applyBoolInfo boolInfo sigma
-    | _ -> { ifTrue = sigma; ifFalse = sigma; }
+    | Some (BoolInfo boolInfo) -> applyBoolInfoTrue boolInfo sigma
+    | _ -> sigma
 
-
+    let computeBoolInfoFalse (k : Key.t) (sigma : t) : t =
+    match getKey_opt k sigma with
+    | Some (BoolInfo boolInfo) -> applyBoolInfoFalse boolInfo sigma
+    | _ -> sigma
 
   let add_vars (sigma : t) (v1 : Variable.t) (v2 : Variable.t) : varInfo =
     match (getVar_top v1 sigma, getVar_top v2 sigma) with
@@ -482,7 +501,6 @@ struct
       let y = SC.addRange (SC.get_bounds Key.Zero sc2) sc1 in
       ScalarInfo (SC.join x y)
     | _ -> Anything
-
 
   let sub_vars (sigma : t) (v1 : Variable.t) (v2 : Variable.t) : varInfo =
     let negateSC sc =
@@ -494,6 +512,15 @@ struct
       let sc2 = negateSC sc2 in
       let x = SC.addRange (SC.get_bounds Key.Zero sc1) sc2 in
       let y = SC.addRange (SC.get_bounds Key.Zero sc2) sc1 in
+      let _ = (
+        debug_println "Subtracting:";
+        SC.print Format.std_formatter sc1;
+        debug_println "and:";
+        SC.print Format.std_formatter sc1;
+        debug_println "to get:";
+        SC.print Format.std_formatter (SC.join x y);
+        debug_println "mmkay?";
+      ) in
       ScalarInfo (SC.join x y)
     | _ -> Anything
 

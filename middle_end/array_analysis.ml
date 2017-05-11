@@ -78,11 +78,28 @@ let rec add_constraints (flam : Flambda.t) (sigma : L.t) : (L.t * L.varInfo) =
   (* Assignment of a mutable variable. We might want to return to this later *)
   | Flambda.Assign _ -> (sigma, Anything)
   | Flambda.If_then_else (v, trueBranch, falseBranch) ->
-    let sigmaIn = Lattice.computeBoolInfo (Key.of_var v) sigma in
-    let (sigmaTrue, trueInfo) = add_c sigmaIn.ifTrue trueBranch in
-    let (sigmaFalse, falseInfo) = add_c sigmaIn.ifFalse falseBranch in
+    let (sigmaTrue, trueInfo) =
+      try
+        let sigmaIn = Lattice.computeBoolInfoTrue (Key.of_var v) sigma in
+        let (sigmaTrue, trueInfo) = add_c sigmaIn trueBranch in
+        (sigmaTrue, Some trueInfo)
+      with ImpossiblePath -> (Lattice.bot, None)
+    in
+    let (sigmaFalse, falseInfo) =
+      try
+        let sigmaIn = Lattice.computeBoolInfoFalse (Key.of_var v) sigma in
+        let (sigmaFalse, falseInfo) = add_c sigmaIn falseBranch in
+        (sigmaFalse, Some falseInfo)
+      with ImpossiblePath -> (Lattice.bot, None)
+    in
     let sigmaNew = (Lattice.join sigmaTrue sigmaFalse) in
-    (sigmaNew, Lattice.joinVarInfo trueInfo falseInfo)
+    let newInfo = match (trueInfo, falseInfo) with
+                  | (None, None) -> raise ImpossiblePath
+                  | (Some x, None) -> x
+                  | (None, Some y) -> y
+                  | (Some x, Some y) -> Lattice.joinVarInfo x y
+    in
+    (sigmaNew, newInfo)
   | Flambda.Switch (_, {Flambda.consts; Flambda.blocks; Flambda.failaction}) ->
     let add_case (sigma, possibleInfos) (_, case) =
       let (sigma2, caseInfo) = add_c sigma case

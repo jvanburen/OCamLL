@@ -96,9 +96,19 @@ let rec optimize_array (lattice: Lattice.t) (expr : Flambda.t) : Flambda.t =
   | Flambda.Send _ -> expr
   | Flambda.Assign _ -> expr
   | Flambda.If_then_else (v, thenB, elseB) ->
-     let sigmaTF = Lattice.computeBoolInfo (Key.of_var v) lattice in
-     Flambda.If_then_else (v, optimize_array sigmaTF.ifTrue thenB,
-                              optimize_array sigmaTF.ifFalse elseB)
+      let trueT =
+        try
+          let sigmaT = Lattice.computeBoolInfoTrue (Key.of_var v) lattice in
+          optimize_array sigmaT thenB
+        with ImpossiblePath -> thenB
+      in
+      let falseT =
+        try
+          let sigmaF = Lattice.computeBoolInfoFalse (Key.of_var v) lattice in
+          optimize_array sigmaF elseB
+        with ImpossiblePath -> elseB
+      in
+      Flambda.If_then_else (v, trueT, falseT)
   | Flambda.Switch _ -> expr
   | Flambda.String_switch _ -> expr
   | Flambda.Static_raise _ -> expr
