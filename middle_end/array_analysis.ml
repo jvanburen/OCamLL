@@ -165,11 +165,11 @@ and add_constraints_named (letBound : Variable.t)
             | Allocated_const.Int32 i -> ScalarInfo (SC.of_int32 i)
             | Allocated_const.Int64 i -> ScalarInfo (SC.of_int64 i)
             | Allocated_const.Nativeint ni -> ScalarInfo (SC.of_nativeint ni)
-            |   Allocated_const.Float _
-              | Allocated_const.String _
-              | Allocated_const.Float_array _
-              | Allocated_const.Immutable_string _
-              | Allocated_const.Immutable_float_array _ -> Anything
+            | Allocated_const.Float _ -> Anything
+            | Allocated_const.String s
+            | Allocated_const.Immutable_string s -> ScalarInfo (SC.of_int (String.length s))
+            | Allocated_const.Float_array l
+            | Allocated_const.Immutable_float_array l -> ScalarInfo (SC.of_int (List.length l))
     )
   (* Once again, mutables might be useful to look at later. *)
   | Flambda.Read_mutable _ -> (sigma, Anything)
@@ -187,9 +187,11 @@ and add_constraints_named (letBound : Variable.t)
   | Flambda.Prim (prim, vars, _) ->
       (sigma, match (prim, vars) with
        (* Ensure we're only looking at the length of a single array. *)
-       | (Lambda.Parraylength _, [var]) ->
+       | (Lambda.Parraylength _, [var])
+       | (Lambda.Pbyteslength, [var])
+       | (Lambda.Pstringlength, [var]) ->
           (match Lattice.getVar_top var sigma with
-          | ScalarInfo sc -> ScalarInfo sc (* It's not a very type-safe lattice... *)
+          | ScalarInfo sc -> ScalarInfo sc
           | Anything -> ScalarInfo SC.nonnegative
           | BoolInfo _ -> raise TypeMismatch (* Nevertheless, this should never happen *)
           )
