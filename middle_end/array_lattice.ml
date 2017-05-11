@@ -495,6 +495,7 @@ struct
     | _ -> sigma
 
   let add_vars (sigma : t) (v1 : Variable.t) (v2 : Variable.t) : varInfo =
+    let sigma = computeClosure sigma in
     match (getVar_top v1 sigma, getVar_top v2 sigma) with
     | (ScalarInfo sc1, ScalarInfo sc2) ->
       let x = SC.addRange (SC.get_bounds Key.Zero sc1) sc2 in
@@ -503,6 +504,7 @@ struct
     | _ -> Anything
 
   let sub_vars (sigma : t) (v1 : Variable.t) (v2 : Variable.t) : varInfo =
+    let sigma = computeClosure sigma in
     let negateSC sc =
       {lb = Key.Map.map Int64.neg sc.ub;
        ub = Key.Map.map Int64.neg sc.lb}
