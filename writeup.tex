@@ -139,7 +139,7 @@ Empirically, a high amount of practical improvements would be possible by exploi
 
 \section{Conclusions}
 
-Dataflow analysis-based Array bounds
+Dataflow analysis-based Array bounds-checking is a tractable optimization, however the current incarnation, however correct, is overall not particularly suitable for general use, due to it's excessive compile-time cost. Nevertheless, this flaw is not inherent in the optimization rather than specific to our implementation, and by redesigning the way we derive constraint information from our lattice, it would be possible to produce an implementation that does not suffer from the same pathalogical compile times.
 
 Lack of tracking bounds for mutable variables, as well as a lack of a context-sensitive analysis (for call sites) appears to have contributed significantly towards the lack of optimizations in our benchmarks.
 Idiomatic functional programming code is very function-heavy. Symbolic analysis of function parameters was unable to sufficiently make up for the information lost across call sites. functional control flow analysis, as well as mutable variable analysis would require significantly more work and redesigning how the optimization pass interacted with the analysis pass. It would require a separate lattice for each binding site in the AST, which is a highly non-trivial task given the amount of time available to us.
